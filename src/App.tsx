@@ -1,19 +1,15 @@
 import './App.scss';
 
-import { Component, createSignal } from 'solid-js';
-import Counter from './Counter';
+import { Component } from 'solid-js';
+import { Route, Router} from '@solidjs/router'
+import HomePage from './pages/HomePage';
 
 const App: Component = () => {
-  const [counter, setCounter] = createSignal(0);
-  setInterval(setCounter, 1000, (c: number) => c + 1);
 
   return (
-    <>
-      <div>
-        <h1 class="header">{counter()}</h1>
-      </div>
-      <Counter />
-    </>
+    <Router>
+        <Route path="/" component={HomePage} />
+    </Router>
   );
 };
 
