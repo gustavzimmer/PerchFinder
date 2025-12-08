@@ -1,16 +1,24 @@
-import { Component, createSignal, onMount } from "solid-js";
+import { Component, createEffect, createSignal, onMount } from "solid-js";
 import { importLibrary, setOptions } from "@googlemaps/js-api-loader";
+import { geoLocation } from "../types/Map.types";
 
 type MapsLib = Awaited<ReturnType<typeof importLibrary<"maps">>>;
 
 const ApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 let hasConfiguredLoader = false;
 
-const GoogleMap: Component = () => {
+interface Props {
+  userLocation: geoLocation | null;
+}
+
+const GoogleMap: Component<Props> = (props) => {
   const [error, setError] = createSignal<string | null>(null);
   const [isLoading, setIsLoading] = createSignal(true);
 
   let mapContainer!: HTMLDivElement;
+  type MapInstance = InstanceType<MapsLib["Map"]>;
+  let map: MapInstance | null = null;
+  const defaultCenter = { lat: 59.3293, lng: 18.0686 }; // Stockholm
 
   const initializeMap = async () => {
     if (!ApiKey) {
@@ -31,8 +39,8 @@ const GoogleMap: Component = () => {
 
       const { Map } = (await importLibrary("maps")) as MapsLib;
 
-      new Map(mapContainer, {
-        center: { lat: 59.3293, lng: 18.0686 },
+      map = new Map(mapContainer, {
+        center: props.userLocation ?? defaultCenter,
         zoom: 9,
         streetViewControl: false,
         fullscreenControl: false,
@@ -49,6 +57,14 @@ const GoogleMap: Component = () => {
 
   onMount(() => {
     initializeMap();
+  });
+
+  createEffect(() => {
+    const loc = props.userLocation;
+    if (map && loc) {
+      map.setCenter(loc);
+      map.setZoom(13);
+    }
   });
 
   return (
