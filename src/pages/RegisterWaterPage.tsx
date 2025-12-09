@@ -1,6 +1,8 @@
 import { Component, createEffect, createSignal, onMount } from "solid-js";
 import { importLibrary, setOptions } from "@googlemaps/js-api-loader";
+import { addDoc, serverTimestamp } from "firebase/firestore";
 import { geoLocation } from "../types/Map.types";
+import {  waterCol } from "../firebase";
 
 type MapsLib = Awaited<ReturnType<typeof importLibrary<"maps">>>;
 type MarkerLib = Awaited<ReturnType<typeof importLibrary<"marker">>>;
@@ -14,6 +16,7 @@ const RegisterWaterPage: Component = () => {
   const [userLocation, setUserLocation] = createSignal<geoLocation | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [isLoading, setIsLoading] = createSignal(true);
+  const [isSaving, setIsSaving] = createSignal(false);
   const [status, setStatus] = createSignal<string | null>(null);
 
   let mapContainer!: HTMLDivElement;
@@ -85,17 +88,31 @@ const RegisterWaterPage: Component = () => {
     }
   };
 
-  const handleSubmit = (event: Event) => {
+  const handleSubmit = async (event: Event) => {
     event.preventDefault();
     setStatus(null);
+    setError(null);
 
     if (!name().trim() || !selectedLocation()) {
       setStatus("Fyll i namn och markera en plats på kartan.");
       return;
     }
 
-    // Här kan du spara till backend/API. Vi mockar bara ett OK-meddelande.
-    setStatus(`"${name().trim()}" sparades med position ${selectedLocation()!.lat.toFixed(5)}, ${selectedLocation()!.lng.toFixed(5)}.`);
+    try {
+      setIsSaving(true);
+      const loc = selectedLocation()!;
+      await addDoc( waterCol , {
+        name: name().trim(),
+        location: loc,
+        createdAt: serverTimestamp(),
+      });
+      setStatus(`"${name().trim()}" sparades!`);
+    } catch (err) {
+      console.error("Kunde inte spara vatten", err);
+      setError("Det gick inte att spara vattnet just nu. Försök igen.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   onMount(() => {
@@ -150,8 +167,11 @@ const RegisterWaterPage: Component = () => {
           )}
         </div>
 
-        <button type="submit" class="primary-button">Spara vatten</button>
+        <button type="submit" class="primary-button" disabled={isSaving() || isLoading()}>
+          {isSaving() ? "Sparar..." : "Spara vatten"}
+        </button>
         {status() && <div class="form-status">{status()}</div>}
+        {error() && <div class="map-error">{error()}</div>}
       </form>
 
       <section class="map-shell">
