@@ -1,16 +1,25 @@
 import './App.scss';
 
 import { Component } from 'solid-js';
-import { Route, Router} from '@solidjs/router'
+import { Route, Router, type RouteSectionProps } from '@solidjs/router';
 import HomePage from './pages/HomePage';
+import Navigation from './components/Navigation';
+import RegisterWaterPage from './pages/RegisterWaterPage';
 
-const App: Component = () => {
+const Layout: Component<RouteSectionProps> = (props) => (
+  <div id="app">
+    <Navigation />
+    {props.children}
+  </div>
+);
 
-  return (
-    <Router>
-        <Route path="/" component={HomePage} />
-    </Router>
-  );
-};
+const App: Component = () => (
+  <Router>
+    <Route path="/" component={Layout}>
+      <Route path="/" component={HomePage} />
+      <Route path="/registrera-fiskevatten" component={RegisterWaterPage} />
+    </Route>
+  </Router>
+);
 
 export default App;
