@@ -125,6 +125,7 @@ const GoogleMap: Component<Props> = (props) => {
 
   return (
     <section class="map-shell">
+        {/* Searchbar */}
       <form class="map-search" onSubmit={searchAndCenter}>
         <input
           type="search"
