@@ -7,6 +7,7 @@ import {
   type DocumentData,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { WaterLocation } from "./types/Map.types";
 
 // Config from env file
 const firebaseConfig = {
@@ -31,4 +32,4 @@ const createCollection = <T = DocumentData>(collectionName: string) => {
   return collection(db, collectionName) as CollectionReference<T>;
 };
 
-export const waterCol = createCollection("FiskeVatten")
+export const waterCol = createCollection<WaterLocation>("FiskeVatten");

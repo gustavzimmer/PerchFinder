@@ -25,7 +25,9 @@ const RegisterWaterPage: Component = () => {
     latLng: { lat: () => number; lng: () => number } | null;
   };
   let map: MapInstance | null = null;
-  let marker: InstanceType<MarkerLib["Marker"]> | null = null;
+  let markerLib: MarkerLib | null = null;
+  type AdvancedMarker = InstanceType<MarkerLib["AdvancedMarkerElement"]>;
+  let marker: AdvancedMarker | null = null;
   const defaultCenter = { lat: 59.3293, lng: 18.0686 }; // Stockholm
 
   const initializeMap = async () => {
@@ -46,10 +48,11 @@ const RegisterWaterPage: Component = () => {
         hasConfiguredLoader = true;
       }
 
-      const [{ Map }, { Marker }] = await Promise.all([
+      const [{ Map }, markerLibrary] = await Promise.all([
         importLibrary("maps") as Promise<MapsLib>,
         importLibrary("marker") as Promise<MarkerLib>,
       ]);
+      markerLib = markerLibrary;
 
       map = new Map(mapContainer, {
         center: userLocation() ?? defaultCenter,
@@ -63,19 +66,20 @@ const RegisterWaterPage: Component = () => {
       map.addListener("click", (e: MapClickEvent) => {
         const latLng = e.latLng;
         const currentMap = map;
-        if (!latLng || !currentMap) return;
+        if (!latLng || !currentMap || !markerLib) return;
 
         const nextPos = { lat: latLng.lat(), lng: latLng.lng() };
         setSelectedLocation(nextPos);
 
         if (!marker) {
-          marker = new Marker({
+          const { AdvancedMarkerElement } = markerLib;
+          marker = new AdvancedMarkerElement({
             map: currentMap,
             position: nextPos,
             title: "Vald plats",
           });
         } else {
-          marker.setPosition(nextPos);
+          marker.position = nextPos;
         }
 
         currentMap.panTo(nextPos);

@@ -1,10 +1,12 @@
 import { Component, createEffect, createSignal, onMount } from "solid-js";
 import { importLibrary, setOptions } from "@googlemaps/js-api-loader";
-import { geoLocation } from "../types/Map.types";
+import { geoLocation, WaterLocation } from "../types/Map.types";
+import useGetWaters from "../hooks/useGetWaters";
 
 type MapsLib = Awaited<ReturnType<typeof importLibrary<"maps">>>;
 type GeocodingLib = Awaited<ReturnType<typeof importLibrary<"geocoding">>>;
 type PlacesLib = Awaited<ReturnType<typeof importLibrary<"places">>>;
+type MarkerLib = Awaited<ReturnType<typeof importLibrary<"marker">>>;
 
 const ApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 let hasConfiguredLoader = false;
@@ -14,19 +16,48 @@ interface Props {
 }
 
 const GoogleMap: Component<Props> = (props) => {
+  const [waters, setWaters] = createSignal<WaterLocation[] | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [isLoading, setIsLoading] = createSignal(true);
   const [query, setQuery] = createSignal("");
   const [searchError, setSearchError] = createSignal<string | null>(null);
 
+  const watersData = useGetWaters();
   let mapContainer!: HTMLDivElement;
   type MapInstance = InstanceType<MapsLib["Map"]>;
   let map: MapInstance | null = null;
   let geocoder: InstanceType<GeocodingLib["Geocoder"]> | null = null;
   let autocomplete: InstanceType<PlacesLib["Autocomplete"]> | null = null;
+  let markerLib: MarkerLib | null = null;
+  type AdvancedMarker = InstanceType<MarkerLib["AdvancedMarkerElement"]>;
   let searchInput!: HTMLInputElement;
   const defaultCenter = { lat: 59.3293, lng: 18.0686 }; // Stockholm
+  let waterMarkers: AdvancedMarker[] = [];
 
+  createEffect(() => {
+    const fetchedWaters = watersData.data();
+    if (fetchedWaters) {
+      setWaters(fetchedWaters);
+    }
+  });
+
+  createEffect(() => {
+    const currentMap = map;
+    const list = waters();
+    if (!currentMap || !list || !markerLib) return;
+
+    waterMarkers.forEach((marker) => {
+      marker.map = null;
+    });
+    const { AdvancedMarkerElement } = markerLib;
+    waterMarkers = list.map((water) => {
+      return new AdvancedMarkerElement({
+        map: currentMap,
+        position: water.location,
+        title: water.name,
+      });
+    });
+  });
   const initializeMap = async () => {
     if (!ApiKey) {
       setError("Saknar GOOGLE_MAPS_API_KEY i miljövariablerna.");
@@ -41,16 +72,18 @@ const GoogleMap: Component<Props> = (props) => {
           key: ApiKey,
           v: "weekly",
           language: "sv",
-          libraries: ["geocoding", "places"],
+          libraries: ["geocoding", "places", "marker"],
         });
         hasConfiguredLoader = true;
       }
 
-      const [{ Map }, { Geocoder }, { Autocomplete }] = await Promise.all([
+      const [{ Map }, { Geocoder }, { Autocomplete }, markerLibrary] = await Promise.all([
         importLibrary("maps") as Promise<MapsLib>,
         importLibrary("geocoding") as Promise<GeocodingLib>,
         importLibrary("places") as Promise<PlacesLib>,
+        importLibrary("marker") as Promise<MarkerLib>,
       ]);
+      markerLib = markerLibrary;
       /* Map settings */
       map = new Map(mapContainer, {
         center: props.userLocation ?? defaultCenter,
