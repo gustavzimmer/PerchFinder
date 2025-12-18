@@ -8,6 +8,7 @@ import {
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { WaterLocation } from "./types/Map.types";
+import { Catch } from "./types/Catch.types";
 
 // Config from env file
 const firebaseConfig = {
@@ -33,3 +34,4 @@ const createCollection = <T = DocumentData>(collectionName: string) => {
 };
 
 export const waterCol = createCollection<WaterLocation>("FiskeVatten");
+export const catchCol = createCollection<Catch>("Fangster");
