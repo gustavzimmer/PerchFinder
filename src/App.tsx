@@ -5,6 +5,7 @@ import { Route, Router, type RouteSectionProps } from '@solidjs/router';
 import HomePage from './pages/HomePage';
 import Navigation from './components/Navigation';
 import RegisterWaterPage from './pages/RegisterWaterPage';
+import WaterInfoPage from './pages/WaterInfoPage';
 
 const Layout: Component<RouteSectionProps> = (props) => (
   <div id="app">
@@ -18,6 +19,7 @@ const App: Component = () => (
     <Route path="/" component={Layout}>
       <Route path="/" component={HomePage} />
       <Route path="/registrera-fiskevatten" component={RegisterWaterPage} />
+      <Route path="/vatten/:id" component={WaterInfoPage} />
     </Route>
   </Router>
 );

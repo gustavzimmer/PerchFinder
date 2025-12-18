@@ -2,6 +2,7 @@ import { Component, createEffect, createSignal, onMount } from "solid-js";
 import { importLibrary, setOptions } from "@googlemaps/js-api-loader";
 import { geoLocation, WaterLocation } from "../types/Map.types";
 import useGetWaters from "../hooks/useGetWaters";
+import WaterMarkerComponent from "./WaterMarkerComponent";
 
 type MapsLib = Awaited<ReturnType<typeof importLibrary<"maps">>>;
 type GeocodingLib = Awaited<ReturnType<typeof importLibrary<"geocoding">>>;
@@ -9,6 +10,7 @@ type PlacesLib = Awaited<ReturnType<typeof importLibrary<"places">>>;
 type MarkerLib = Awaited<ReturnType<typeof importLibrary<"marker">>>;
 
 const ApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+const MapId = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID;
 let hasConfiguredLoader = false;
 
 interface Props {
@@ -25,14 +27,12 @@ const GoogleMap: Component<Props> = (props) => {
   const watersData = useGetWaters();
   let mapContainer!: HTMLDivElement;
   type MapInstance = InstanceType<MapsLib["Map"]>;
-  let map: MapInstance | null = null;
+  const [mapRef, setMapRef] = createSignal<MapInstance | null>(null);
   let geocoder: InstanceType<GeocodingLib["Geocoder"]> | null = null;
   let autocomplete: InstanceType<PlacesLib["Autocomplete"]> | null = null;
-  let markerLib: MarkerLib | null = null;
-  type AdvancedMarker = InstanceType<MarkerLib["AdvancedMarkerElement"]>;
   let searchInput!: HTMLInputElement;
   const defaultCenter = { lat: 59.3293, lng: 18.0686 }; // Stockholm
-  let waterMarkers: AdvancedMarker[] = [];
+  const [markerLib, setMarkerLib] = createSignal<MarkerLib | null>(null);
 
   createEffect(() => {
     const fetchedWaters = watersData.data();
@@ -41,23 +41,6 @@ const GoogleMap: Component<Props> = (props) => {
     }
   });
 
-  createEffect(() => {
-    const currentMap = map;
-    const list = waters();
-    if (!currentMap || !list || !markerLib) return;
-
-    waterMarkers.forEach((marker) => {
-      marker.map = null;
-    });
-    const { AdvancedMarkerElement } = markerLib;
-    waterMarkers = list.map((water) => {
-      return new AdvancedMarkerElement({
-        map: currentMap,
-        position: water.location,
-        title: water.name,
-      });
-    });
-  });
   const initializeMap = async () => {
     if (!ApiKey) {
       setError("Saknar GOOGLE_MAPS_API_KEY i miljövariablerna.");
@@ -83,16 +66,19 @@ const GoogleMap: Component<Props> = (props) => {
         importLibrary("places") as Promise<PlacesLib>,
         importLibrary("marker") as Promise<MarkerLib>,
       ]);
-      markerLib = markerLibrary;
+      setMarkerLib(markerLibrary);
+
       /* Map settings */
-      map = new Map(mapContainer, {
+      const mapInstance = new Map(mapContainer, {
         center: props.userLocation ?? defaultCenter,
         zoom: 9,
         streetViewControl: false,
         fullscreenControl: false,
         mapTypeControl: false,
+        mapId: MapId,
         gestureHandling: "greedy",
       });
+      setMapRef(mapInstance);
 
       geocoder = new Geocoder();
       if (searchInput) {
@@ -102,7 +88,7 @@ const GoogleMap: Component<Props> = (props) => {
         });
 
         autocomplete.addListener("place_changed", () => {
-          const currentMap = map;
+          const currentMap = mapInstance;
           if (!autocomplete || !currentMap) return;
           const place = autocomplete.getPlace();
           const loc = place.geometry?.location;
@@ -131,7 +117,7 @@ const GoogleMap: Component<Props> = (props) => {
 
   createEffect(() => {
     const loc = props.userLocation;
-    const currentMap = map;
+    const currentMap = mapRef();
     if (currentMap && loc) {
       currentMap.setCenter(loc);
       currentMap.setZoom(13);
@@ -141,7 +127,7 @@ const GoogleMap: Component<Props> = (props) => {
   const searchAndCenter = (event: Event) => {
     event.preventDefault();
     const value = query().trim();
-    const currentMap = map;
+    const currentMap = mapRef();
     if (!value || !currentMap || !geocoder) return;
     setSearchError(null);
 
@@ -172,6 +158,7 @@ const GoogleMap: Component<Props> = (props) => {
       {searchError() && <div class="map-search__error">{searchError()}</div>}
 
       <div class="map-frame">
+        <WaterMarkerComponent map={mapRef} markerLib={markerLib} waters={waters} />
         <div ref={mapContainer} class="map-canvas" />
 
         {isLoading() && <div class="map-overlay">Laddar karta...</div>}

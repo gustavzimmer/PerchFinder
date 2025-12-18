@@ -8,6 +8,7 @@ type MapsLib = Awaited<ReturnType<typeof importLibrary<"maps">>>;
 type MarkerLib = Awaited<ReturnType<typeof importLibrary<"marker">>>;
 
 const ApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+const MapId = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID";
 let hasConfiguredLoader = false;
 
 const RegisterWaterPage: Component = () => {
@@ -60,6 +61,7 @@ const RegisterWaterPage: Component = () => {
         streetViewControl: false,
         fullscreenControl: false,
         mapTypeControl: false,
+        mapId: MapId,
         gestureHandling: "greedy",
       });
 
