@@ -1,11 +1,14 @@
 
-import { Component, createSignal } from "solid-js";
+import { Component, Show, createSignal } from "solid-js";
 import { useParams } from "@solidjs/router";
 import CatchFormModal from "../components/CatchFormComponent";
+import WaterCatchesComponent from "../components/WaterCatchesComponent";
+import useGetSingleWater from "../hooks/useGetSingleWater";
 
 const WaterInfoPage: Component = () => {
   const params = useParams();
   const waterId = () => params.id;
+  const waterData = useGetSingleWater(waterId() ?? "");
 
   const [showForm, setShowForm] = createSignal(false);
   const [status, setStatus] = createSignal<string | null>(null);
@@ -13,7 +16,12 @@ const WaterInfoPage: Component = () => {
 
   return (
     <main class="page">
-      <h1>Vatteninformation</h1>
+      <Show when={!waterData.isLoading()} fallback={<h1>Laddar vatten...</h1>}>
+        <h1>{waterData.data()?.name ?? "Vatteninformation"}</h1>
+        <Show when={waterData.error()}>
+          <div class="form-status error">{waterData.error()}</div>
+        </Show>
+      </Show>
       <button class="primary-button" onClick={() => setShowForm(true)}>
         Registrera fångst
       </button>
@@ -21,13 +29,15 @@ const WaterInfoPage: Component = () => {
       {error() && <div class="form-status error">{error()}</div>}
 
       {showForm() && (
-      <CatchFormModal
-        waterId={waterId()}
-        onClose={() => setShowForm(false)}
-        onStatus={setStatus}
-        onError={setError}
-      />
-      ) } 
+        <CatchFormModal
+          waterId={waterId()}
+          onClose={() => setShowForm(false)}
+          onStatus={setStatus}
+          onError={setError}
+        />
+      )}
+
+      <WaterCatchesComponent />
     </main>
   );
 };

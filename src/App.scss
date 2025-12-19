@@ -191,3 +191,55 @@
   cursor: pointer;
   font-weight: 700;
 }
+
+.catch-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.catch-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.03);
+  max-width: 400px;
+  display: flex;
+  justify-content: center;
+}
+
+.catch-meta {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.catch-time {
+  color: #4b5563;
+  font-weight: 500;
+}
+
+.catch-photo {
+  margin-top: 0.5rem;
+  border-radius: 10px;
+  overflow: hidden;
+  max-width: 350px;
+}
+
+.catch-photo img {
+  width: 100%;
+  display: block;
+  max-width: 350px;
+  
+}
+
+.catch-notes {
+  margin-top: 0.5rem;
+  color: #374151;
+}

@@ -19,6 +19,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
   const [notes, setNotes] = createSignal("");
   const [isSaving, setIsSaving] = createSignal(false);
   const [photoFile, setPhotoFile] = createSignal<File | null>(null);
+  const [isProcessingPhoto, setIsProcessingPhoto] = createSignal(false);
 
   const resetForm = () => {
     setWeight("");
@@ -33,6 +34,36 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
     if (!trimmed) return null;
     const num = Number(trimmed.replace(",", "."));
     return Number.isNaN(num) ? null : num;
+  };
+
+  const isHeicFile = (file: File) => {
+    return (
+      file.type.includes("heic") ||
+      file.type.includes("heif") ||
+      /\.heic$/i.test(file.name) ||
+      /\.heif$/i.test(file.name)
+    );
+  };
+
+  const normalizeHeicToJpeg = async (file: File) => {
+    const isHeic =
+      file.type.includes("heic") ||
+      file.type.includes("heif") ||
+      /\.heic$/i.test(file.name) ||
+      /\.heif$/i.test(file.name);
+
+    if (!isHeic) return file;
+
+    const heic2any = (await import("heic2any")).default;
+    const result = await heic2any({
+      blob: file,
+      toType: "image/jpeg",
+      quality: 0.9,
+    });
+
+    const blob = Array.isArray(result) ? result[0] : result;
+    const newName = file.name.replace(/\.(heic|heif)$/i, "") || "photo";
+    return new File([blob], `${newName}.jpg`, { type: "image/jpeg" });
   };
 
   const uploadPhoto = async (file: File, waterId: string) => {
@@ -83,8 +114,22 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
     try {
       setIsSaving(true);
       if (photoFile()) {
-        const file = photoFile();
+        let file = photoFile();
         if (file) {
+          if (isHeicFile(file)) {
+            setIsProcessingPhoto(true);
+            try {
+              file = await normalizeHeicToJpeg(file);
+            } catch (err) {
+              console.error("Kunde inte konvertera HEIC", err);
+              props.onError("Kunde inte hantera bilden. Försök igen eller använd JPG/PNG.");
+              setIsSaving(false);
+              setIsProcessingPhoto(false);
+              return;
+            } finally {
+              setIsProcessingPhoto(false);
+            }
+          }
           payload.photoUrl = await uploadPhoto(file, id);
         }
       }
@@ -162,12 +207,22 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
                 accept="image/*"
                 onChange={(e) => {
                   const file = e.currentTarget.files?.[0] ?? null;
-                  if (file && !file.type.startsWith("image/")) {
+                  if (!file) {
+                    setPhotoFile(null);
+                    return;
+                  }
+
+                  const isImageType = file.type.startsWith("image/");
+                  const isHeicByExt = /\.heic$|\.heif$/i.test(file.name);
+
+                  if (!isImageType && !isHeicByExt) {
                     props.onError("Endast bildfiler tillåtna.");
                     e.currentTarget.value = "";
                     setPhotoFile(null);
                     return;
                   }
+
+                  props.onError(null);
                   setPhotoFile(file);
                 }}
               />
@@ -177,8 +232,8 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
               <button type="button" onClick={() => props.onClose()}>
                 Avbryt
               </button>
-              <button type="submit" class="primary-button" disabled={isSaving()}>
-                {isSaving() ? "Sparar..." : "Spara"}
+              <button type="submit" class="primary-button" disabled={isSaving() || isProcessingPhoto()}>
+                {isSaving() ? "Sparar..." : isProcessingPhoto() ? "Bearbetar bild..." : "Spara"}
               </button>
             </div>
           </form>
