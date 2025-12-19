@@ -1,13 +1,14 @@
-import { Component, Show, createSignal } from "solid-js";
+import { Component, Setter, createSignal } from "solid-js";
 import { addDoc, serverTimestamp } from "firebase/firestore";
-import { catchCol } from "../firebase";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { catchCol, storage } from "../firebase";
 import { CatchInput } from "../types/Catch.types";
 
 interface CatchFormModalProps {
   waterId: string | undefined;
   onClose: () => void;
-  onStatus: (message: string | null) => void;
-  onError: (message: string | null) => void;
+  onStatus: Setter<string | null>;
+  onError: Setter<string | null>;
 }
 
 const CatchFormModal: Component<CatchFormModalProps> = (props) => {
@@ -17,12 +18,14 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
   const [caughtAt, setCaughtAt] = createSignal(nowLocalInput());
   const [notes, setNotes] = createSignal("");
   const [isSaving, setIsSaving] = createSignal(false);
+  const [photoFile, setPhotoFile] = createSignal<File | null>(null);
 
   const resetForm = () => {
     setWeight("");
     setLength("");
     setNotes("");
     setCaughtAt(nowLocalInput());
+    setPhotoFile(null);
   };
 
   const parseNumber = (value: string) => {
@@ -30,6 +33,17 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
     if (!trimmed) return null;
     const num = Number(trimmed.replace(",", "."));
     return Number.isNaN(num) ? null : num;
+  };
+
+  const uploadPhoto = async (file: File, waterId: string) => {
+    const ext = file.name.split(".").pop() || "jpg";
+    const safeExt = ext.replace(/[^a-zA-Z0-9]/g, "") || "jpg";
+    const storageRef = ref(
+      storage,
+      `catch-photos/${waterId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${safeExt}`
+    );
+    await uploadBytes(storageRef, file, { contentType: file.type });
+    return getDownloadURL(storageRef);
   };
 
   const handleSubmit = async (e: Event) => {
@@ -68,6 +82,12 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
 
     try {
       setIsSaving(true);
+      if (photoFile()) {
+        const file = photoFile();
+        if (file) {
+          payload.photoUrl = await uploadPhoto(file, id);
+        }
+      }
       await addDoc(catchCol, {
         ...payload,
         createdAt: serverTimestamp(),
@@ -85,7 +105,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
 
   return (
     <>
-      <div class="catch-overlay" onClick={ () => props.onClose()}>
+      <div class="catch-overlay" onClick={() => props.onClose()}>
         <div class="catch-modal" onClick={(e) => e.stopPropagation()}>
           <header class="catch-modal__header">
             <h2>Registrera fångst</h2>
@@ -132,6 +152,24 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
                 value={notes()}
                 onInput={(e) => setNotes(e.currentTarget.value)}
                 placeholder="Valfritt"
+              />
+            </label>
+
+            <label>
+              <span>Bild (valfritt)</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.currentTarget.files?.[0] ?? null;
+                  if (file && !file.type.startsWith("image/")) {
+                    props.onError("Endast bildfiler tillåtna.");
+                    e.currentTarget.value = "";
+                    setPhotoFile(null);
+                    return;
+                  }
+                  setPhotoFile(file);
+                }}
               />
             </label>
 

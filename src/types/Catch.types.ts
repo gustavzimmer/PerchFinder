@@ -4,6 +4,7 @@ export interface Catch {
   weightG?: number | null;
   lengthCm?: number | null;
   notes?: string | null;
+  photoUrl?: string | null;
   caughtAt: string; // ISO date string
   createdAt?: unknown; // Firestore timestamp when read back
   userId?: string | null;

@@ -1,7 +1,7 @@
 
 import { Component, createSignal } from "solid-js";
 import { useParams } from "@solidjs/router";
-import CatchFormModal from "../components/CatchFormModal";
+import CatchFormModal from "../components/CatchFormComponent";
 
 const WaterInfoPage: Component = () => {
   const params = useParams();
