@@ -156,7 +156,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
             </label>
 
             <label>
-              <span>Bild (valfritt)</span>
+              <span>Bild</span>
               <input
                 type="file"
                 accept="image/*"
