@@ -1,3 +1,12 @@
+export interface LureOption {
+  id: string;
+  name: string;
+  type: string;
+  brand: string;
+  size: string;
+  color: string;
+}
+
 export interface Catch {
   id?: string;
   waterId: string;
@@ -5,6 +14,7 @@ export interface Catch {
   lengthCm?: number | null;
   notes?: string | null;
   photoUrl?: string | null;
+  lure?: LureOption | null;
   weatherCode: number | null;
   weatherSummary?: string | null;
   temperatureC: number | null;

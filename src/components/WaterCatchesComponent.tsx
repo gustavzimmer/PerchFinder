@@ -21,18 +21,34 @@ const WaterCatchesComponent = () => {
                   <div class="catch-meta">
 
                     {item.photoUrl && (
+
                         <div class="catch-photo">
-                        <img src={item.photoUrl} alt="Fångstbild" loading="lazy" />
+                            <img src={item.photoUrl} alt="Fångstbild" loading="lazy" />
                         </div>
+
                     )}
+
                     <div>
                       <strong>{item.weightG ? `${item.weightG} g` : "Okänd vikt"}</strong>{" "}
                       {item.lengthCm ? ` | ${item.lengthCm} cm` : null}
                     </div>
+
                     <div class="catch-time">
                       {new Date(item.caughtAt).toLocaleString("sv-SE")}
                     </div>
-                  {item.notes && <p class="catch-notes">{item.notes}</p>}
+
+                    {item.notes && (
+                        <div>
+                            <h3>Kommentar</h3>
+                            <p class="catch-notes">{item.notes}</p>
+                        </div>
+                    )}
+
+                    <div>
+                        <p> { item.weatherSummary } </p>
+                        <p> { item.pressureHpa } </p>
+                    </div>
+                    
                   </div>
 
                 </li>

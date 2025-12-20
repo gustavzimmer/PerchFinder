@@ -1,8 +1,9 @@
-import { Component, Setter, createSignal } from "solid-js";
+import { Component, For, Setter, createMemo, createSignal } from "solid-js";
 import { addDoc, serverTimestamp } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { catchCol, storage } from "../firebase";
-import { CatchInput } from "../types/Catch.types";
+import { CatchInput, LureOption } from "../types/Catch.types";
+import { lures } from "../data/lures";
 import { geoLocation } from "../types/Map.types";
 
 interface CatchFormModalProps {
@@ -22,6 +23,19 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
   const [isSaving, setIsSaving] = createSignal(false);
   const [photoFile, setPhotoFile] = createSignal<File | null>(null);
   const [isProcessingPhoto, setIsProcessingPhoto] = createSignal(false);
+  const [selectedLureId, setSelectedLureId] = createSignal<string>("");
+  const [lureQuery, setLureQuery] = createSignal("");
+
+  /* Search for bait */
+  const filteredLures = createMemo(() => {
+    const q = lureQuery().toLowerCase().trim();
+    if (!q) return lures;
+    return lures.filter((lure) =>
+      [lure.name, lure.brand, lure.type, lure.size, lure.color].some((field) =>
+        field.toLowerCase().includes(q)
+      )
+    );
+  });
 
   const resetForm = () => {
     setWeight("");
@@ -191,6 +205,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
       lengthCm,
       notes: notes().trim() || null,
       caughtAt: caughtAtIso,
+      lure: null as LureOption | null,
       weatherCode: null,
       temperatureC: null,
       pressureHpa: null,
@@ -199,24 +214,46 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
 
     try {
       setIsSaving(true);
+
       if (photoFile()) {
+
         let file = photoFile();
+
         if (file) {
+
           if (isHeicFile(file)) {
+
             setIsProcessingPhoto(true);
+
             try {
+
               file = await normalizeHeicToJpeg(file);
+
             } catch (err) {
+
               console.error("Kunde inte konvertera HEIC", err);
               props.onError("Kunde inte hantera bilden. Försök igen eller använd JPG/PNG.");
+
               setIsSaving(false);
               setIsProcessingPhoto(false);
+
               return;
             } finally {
+
               setIsProcessingPhoto(false);
+
             }
           }
+
           payload.photoUrl = await uploadPhoto(file, id);
+
+        }
+      }
+      if (selectedLureId()) {
+        
+        const foundLure = lures.find((item) => item.id === selectedLureId());
+        if (foundLure) {
+          payload.lure = foundLure;
         }
       }
       if (props.waterLocation) {
@@ -295,6 +332,42 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
                 onInput={(e) => setNotes(e.currentTarget.value)}
                 placeholder="Valfritt"
               />
+            </label>
+
+            <label class="lure-picker">
+              <span>Betesval</span>
+              <input
+                type="search"
+                placeholder="Sök namn, märke, färg..."
+                value={lureQuery()}
+                onInput={(e) => setLureQuery(e.currentTarget.value)}
+              />
+              <div class="lure-list" role="listbox" aria-label="Betesval">
+                <button
+                  type="button"
+                  class={`lure-option ${selectedLureId() === "" ? "is-selected" : ""}`}
+                  onClick={() => setSelectedLureId("")}
+                  aria-selected={selectedLureId() === ""}
+                >
+                  Inget bete
+                </button>
+                <For each={filteredLures()}>
+                  {(lure) => {
+                    const isSelected = () => selectedLureId() === lure.id;
+                    return (
+                      <button
+                        type="button"
+                        class={`lure-option ${isSelected() ? "is-selected" : ""}`}
+                        onClick={() => setSelectedLureId(lure.id)}
+                        aria-selected={isSelected()}
+                      >
+                        <strong>{lure.brand} {lure.name}</strong>
+                        <small>{lure.type} — {lure.size} — {lure.color}</small>
+                      </button>
+                    );
+                  }}
+                </For>
+              </div>
             </label>
 
             <label>
