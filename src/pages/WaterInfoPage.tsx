@@ -31,6 +31,7 @@ const WaterInfoPage: Component = () => {
       {showForm() && (
         <CatchFormModal
           waterId={waterId()}
+          waterLocation={waterData.data()?.location}
           onClose={() => setShowForm(false)}
           onStatus={setStatus}
           onError={setError}

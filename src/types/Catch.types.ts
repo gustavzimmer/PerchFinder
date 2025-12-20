@@ -5,8 +5,12 @@ export interface Catch {
   lengthCm?: number | null;
   notes?: string | null;
   photoUrl?: string | null;
-  caughtAt: string; // ISO date string
-  createdAt?: unknown; // Firestore timestamp when read back
+  weatherCode: number | null;
+  weatherSummary?: string | null;
+  temperatureC: number | null;
+  pressureHpa: number | null;
+  caughtAt: string; 
+  createdAt?: unknown;
   userId?: string | null;
 }
 

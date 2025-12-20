@@ -3,9 +3,11 @@ import { addDoc, serverTimestamp } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { catchCol, storage } from "../firebase";
 import { CatchInput } from "../types/Catch.types";
+import { geoLocation } from "../types/Map.types";
 
 interface CatchFormModalProps {
   waterId: string | undefined;
+  waterLocation?: geoLocation | undefined;
   onClose: () => void;
   onStatus: Setter<string | null>;
   onError: Setter<string | null>;
@@ -77,6 +79,87 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
     return getDownloadURL(storageRef);
   };
 
+  const mapWeatherCode = (code: number | null | undefined) => {
+    switch (code) {
+      case 0:
+        return "Klart";
+      case 1:
+      case 2:
+        return "Mest klart";
+      case 3:
+        return "Molnigt";
+      case 45:
+      case 48:
+        return "Dimmigt";
+      case 51:
+      case 53:
+      case 55:
+        return "Duggregn";
+      case 56:
+      case 57:
+        return "Underkylt duggregn";
+      case 61:
+      case 63:
+      case 65:
+        return "Regn";
+      case 66:
+      case 67:
+        return "Underkylt regn";
+      case 71:
+      case 73:
+      case 75:
+        return "Snöfall";
+      case 77:
+        return "Snökorn";
+      case 80:
+      case 81:
+      case 82:
+        return "Skurar";
+      case 85:
+      case 86:
+        return "Snöbyar";
+      case 95:
+      case 96:
+      case 99:
+        return "Åska";
+      default:
+        return null;
+    }
+  };
+
+  const fetchWeather = async (loc: geoLocation) => {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lng}&current=temperature_2m,weather_code,surface_pressure&timezone=auto`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Weather request failed");
+    const json = await res.json();
+    const current = json.current ?? json.current_weather;
+    if (!current) {
+      return {
+        weatherCode: null,
+        weatherSummary: null,
+        temperatureC: null,
+        pressureHpa: null,
+      };
+    }
+
+    return {
+      weatherCode:
+        typeof current.weather_code === "number"
+          ? current.weather_code
+          : typeof current.weathercode === "number"
+            ? current.weathercode
+            : null,
+      weatherSummary: mapWeatherCode(current.weather_code ?? current.weathercode),
+      temperatureC:
+        typeof current.temperature_2m === "number"
+          ? current.temperature_2m
+          : typeof current.temperature === "number"
+            ? current.temperature
+            : null,
+      pressureHpa: typeof current.surface_pressure === "number" ? current.surface_pressure : null,
+    };
+  };
+
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
     props.onStatus(null);
@@ -108,6 +191,9 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
       lengthCm,
       notes: notes().trim() || null,
       caughtAt: caughtAtIso,
+      weatherCode: null,
+      temperatureC: null,
+      pressureHpa: null,
       userId: null,
     };
 
@@ -131,6 +217,17 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
             }
           }
           payload.photoUrl = await uploadPhoto(file, id);
+        }
+      }
+      if (props.waterLocation) {
+        try {
+          const weather = await fetchWeather(props.waterLocation);
+          payload.weatherCode = weather.weatherCode;
+          payload.weatherSummary = weather.weatherSummary;
+          payload.temperatureC = weather.temperatureC;
+          payload.pressureHpa = weather.pressureHpa;
+        } catch (err) {
+          console.warn("Kunde inte hämta väder", err);
         }
       }
       await addDoc(catchCol, {

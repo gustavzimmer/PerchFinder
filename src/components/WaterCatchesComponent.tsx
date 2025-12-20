@@ -32,9 +32,9 @@ const WaterCatchesComponent = () => {
                     <div class="catch-time">
                       {new Date(item.caughtAt).toLocaleString("sv-SE")}
                     </div>
+                  {item.notes && <p class="catch-notes">{item.notes}</p>}
                   </div>
 
-                  {item.notes && <p class="catch-notes">{item.notes}</p>}
                 </li>
               )}
             </For>
