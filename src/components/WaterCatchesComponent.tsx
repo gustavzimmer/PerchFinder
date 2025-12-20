@@ -37,6 +37,11 @@ const WaterCatchesComponent = () => {
                       {new Date(item.caughtAt).toLocaleString("sv-SE")}
                     </div>
 
+                    <div>
+                        <h3>Bete</h3>
+                        <p>{item.lure ? `${item.lure.brand} ${item.lure.name} ${item.lure.size} ${item.lure.type} ${item.lure.color}` : "Inget bete tillagt"}</p>
+                    </div>
+
                     {item.notes && (
                         <div>
                             <h3>Kommentar</h3>
@@ -48,7 +53,7 @@ const WaterCatchesComponent = () => {
                         <p> { item.weatherSummary } </p>
                         <p> { item.pressureHpa } </p>
                     </div>
-                    
+
                   </div>
 
                 </li>
