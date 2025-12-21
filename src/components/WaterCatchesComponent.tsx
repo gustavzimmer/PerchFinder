@@ -6,10 +6,11 @@ const WaterCatchesComponent = () => {
   const params = useParams();
   const waterId = () => params.id;
 
-  const catches = useGetCatches(waterId() ?? "");
+  const catches = useGetCatches(() => waterId() ?? "");
 
   return (
     <section class="water-catches">
+        
       <h2>Fångster</h2>
 
       <Show when={!catches.isLoading()} fallback={<div>Laddar fångster...</div>}>

@@ -293,3 +293,26 @@
   box-shadow: 0 0 0 1px #2563eb inset;
   background: #eff6ff;
 }
+
+.ai-recommendation {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f9fafb;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.ai-reco__box {
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  min-height: 80px;
+  white-space: pre-wrap;
+}
+
+.ai-reco__summary {
+  color: #4b5563;
+}

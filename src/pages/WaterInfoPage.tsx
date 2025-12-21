@@ -4,6 +4,7 @@ import { useParams } from "@solidjs/router";
 import CatchFormModal from "../components/CatchFormComponent";
 import WaterCatchesComponent from "../components/WaterCatchesComponent";
 import useGetSingleWater from "../hooks/useGetSingleWater";
+import WaterRecommendationsComponent from "../components/WaterRecommendationsComponent";
 
 const WaterInfoPage: Component = () => {
   const params = useParams();
@@ -39,6 +40,11 @@ const WaterInfoPage: Component = () => {
       )}
 
       <WaterCatchesComponent />
+
+      <WaterRecommendationsComponent
+        waterId={waterId() ?? ""}
+        waterName={waterData.data()?.name ?? ""}
+      />
     </main>
   );
 };
