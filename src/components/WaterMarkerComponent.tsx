@@ -58,6 +58,8 @@ const WaterMarkerComponent: Component<Props> = (props) => {
     title.textContent = water.name;
     container.appendChild(title);
 
+    const waterId = water._id ?? "";
+
     const catches = document.createElement("p");
     const count = water.catchCount ?? 0;
     catches.textContent = `Registrerade fångster: ${count}`;
@@ -65,9 +67,9 @@ const WaterMarkerComponent: Component<Props> = (props) => {
 
     const link = document.createElement("a");
     link.textContent = "Visa vatten";
-    link.href = "/vatten/" + water._id;
+    link.href = waterId ? "/vatten/" + waterId : "#";
     link.className = "water-info-window__link";
-    if (!water.detailPath) {
+    if (!water.detailPath || !waterId) {
       link.setAttribute("aria-disabled", "true");
     }
     container.appendChild(link);

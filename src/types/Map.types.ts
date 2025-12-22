@@ -12,9 +12,9 @@ export interface RegisterWaterLocation {
 }
 
 export interface WaterLocation {
-    _id: string
+    _id?: string
     location: geoLocation
-    createdAt: string
+    createdAt?: string
     name: string
     catchCount?: number
     detailPath?: string

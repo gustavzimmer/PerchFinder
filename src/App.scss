@@ -61,6 +61,29 @@ body {
   background: #eef2ff;
 }
 
+.nav-user {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.nav-button {
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  padding: 0.45rem 0.8rem;
+  border-radius: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nav-button:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+.nav-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .auth-page {
   max-width: 560px;
 }
