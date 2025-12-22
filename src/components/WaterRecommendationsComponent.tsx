@@ -1,20 +1,11 @@
 
-import { Component, Show, createEffect, createMemo, createSignal } from "solid-js";
+import { Component, Show, createMemo } from "solid-js";
 import useGetCatches from "../hooks/useGetCatches";
+import useWaterRecommendation, { WaterStatsPayload } from "../hooks/useWaterRecommendation";
 
 type Props = {
   waterId: string;
   waterName?: string;
-};
-
-type StatsPayload = {
-  waterName: string;
-  totalCatches: number;
-  commonLures: string[];
-  bestTimeOfDay: string;
-  avgTempC: number | null;
-  commonWeather: string | null;
-  avgPressureHpa: number | null;
 };
 
 const mapWeatherCode = (code: number | null | undefined) => {
@@ -75,12 +66,8 @@ const timeBucket = (iso: string) => {
 
 const WaterRecommendationsComponent: Component<Props> = (props) => {
   const catches = useGetCatches(() => props.waterId ?? "");
-  const [recommendation, setRecommendation] = createSignal<string | null>(null);
-  const [isLoading, setIsLoading] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
-  let lastSignature = "";
 
-  const stats = createMemo<StatsPayload | null>(() => {
+  const stats = createMemo<WaterStatsPayload | null>(() => {
     const list = catches.data();
     if (!list || list.length === 0) return null;
 
@@ -142,42 +129,15 @@ const WaterRecommendationsComponent: Component<Props> = (props) => {
     };
   });
 
-  createEffect(() => {
-    const s = stats();
-    if (!s) return;
-    const signature = JSON.stringify(s);
-    if (signature === lastSignature) return;
-    lastSignature = signature;
-
-    const fetchRecommendation = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const res = await fetch("https://getwaterrecommendation-bcdwkmqjia-uc.a.run.app", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ stats: s }),
-        });
-        if (!res.ok) {
-          throw new Error(`Request failed: ${res.status}`);
-        }
-        const json = await res.json();
-        setRecommendation(json.recommendation ?? "");
-      } catch (err) {
-        console.error("AI recommendation error", err);
-        setError("Kunde inte hämta rekommendation just nu.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchRecommendation();
-  });
+  const { recommendation, isLoading, error } = useWaterRecommendation(stats);
 
   return (
     <section class="ai-recommendation">
-      <h2>AI-rekommendation</h2>
-      <Show when={catches.isLoading()} fallback={<div class="ai-reco__summary">Baserat på {catches.data()?.length ?? 0} fångster.</div>}>
+      <h2>Rekommendation</h2>
+      <Show
+        when={catches.isLoading()}
+        fallback={<div class="ai-reco-summary">Baserat på {stats()?.totalCatches ?? catches.data()?.length ?? 0} fångster.</div>}
+      >
         <div>Laddar fångster...</div>
       </Show>
       {error() && <div class="form-status error">{error()}</div>}
