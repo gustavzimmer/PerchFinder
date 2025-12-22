@@ -1,15 +1,17 @@
-import { A } from "@solidjs/router";
+import { A, useNavigate } from "@solidjs/router";
 import { FirebaseError } from "firebase/app";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { Component, createSignal } from "solid-js";
+import { Component, createSignal, onCleanup } from "solid-js";
 import { auth } from "../firebase";
 
 const LoginPage: Component = () => {
+  const navigate = useNavigate();
   const [email, setEmail] = createSignal("");
   const [password, setPassword] = createSignal("");
   const [status, setStatus] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [isSubmitting, setIsSubmitting] = createSignal(false);
+  let redirectTimer: number | null = null;
 
   const toFriendlyMessage = (err: unknown) => {
     if (err instanceof FirebaseError) {
@@ -43,8 +45,10 @@ const LoginPage: Component = () => {
       setIsSubmitting(true);
       const credential = await signInWithEmailAndPassword(auth, email().trim(), password());
       const userEmail = credential.user.email ?? "användare";
-      setStatus(`Inloggad som ${userEmail}.`);
+      setStatus(`Inloggad som ${userEmail}. Omdirigerar...`);
       setPassword("");
+      if (redirectTimer) clearTimeout(redirectTimer);
+      redirectTimer = window.setTimeout(() => navigate("/"), 1200);
     } catch (err) {
       console.error("Kunde inte logga in", err);
       setError(toFriendlyMessage(err));
@@ -52,6 +56,12 @@ const LoginPage: Component = () => {
       setIsSubmitting(false);
     }
   };
+
+  onCleanup(() => {
+    if (redirectTimer) {
+      clearTimeout(redirectTimer);
+    }
+  });
 
   return (
     <main class="page auth-page">

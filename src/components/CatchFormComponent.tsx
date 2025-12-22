@@ -1,7 +1,7 @@
 import { Component, For, Setter, createMemo, createSignal } from "solid-js";
 import { addDoc, serverTimestamp } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { catchCol, storage } from "../firebase";
+import { auth, catchCol, storage } from "../firebase";
 import { CatchInput, LureOption } from "../types/Catch.types";
 import { lures } from "../data/lures";
 import { geoLocation } from "../types/Map.types";
@@ -185,6 +185,12 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
       return;
     }
 
+    const user = auth.currentUser;
+    if (!user) {
+      props.onError("Du måste vara inloggad för att registrera en fångst.");
+      return;
+    }
+
     const weightG = parseNumber(weight());
     const lengthCm = parseNumber(length());
 
@@ -209,7 +215,8 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
       weatherCode: null,
       temperatureC: null,
       pressureHpa: null,
-      userId: null,
+      userId: user.uid,
+      userEmail: user.email ?? null,
     };
 
     try {

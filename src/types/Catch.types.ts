@@ -22,6 +22,7 @@ export interface Catch {
   caughtAt: string; 
   createdAt?: unknown;
   userId?: string | null;
+  userEmail?: string | null;
 }
 
 export type CatchInput = Omit<Catch, "id" | "createdAt">;
