@@ -6,6 +6,8 @@ import HomePage from './pages/HomePage';
 import Navigation from './components/Navigation';
 import RegisterWaterPage from './pages/RegisterWaterPage';
 import WaterInfoPage from './pages/WaterInfoPage';
+import RegisterUserPage from './pages/RegisterUserPage';
+import LoginPage from './pages/LoginPage';
 
 const Layout: Component<RouteSectionProps> = (props) => (
   <div id="app">
@@ -20,6 +22,8 @@ const App: Component = () => (
       <Route path="/" component={HomePage} />
       <Route path="/registrera-fiskevatten" component={RegisterWaterPage} />
       <Route path="/vatten/:id" component={WaterInfoPage} />
+      <Route path="/skapa-konto" component={RegisterUserPage} />
+      <Route path="/logga-in" component={LoginPage} />
     </Route>
   </Router>
 );
