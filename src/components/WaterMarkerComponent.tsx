@@ -1,6 +1,7 @@
 import { Accessor, Component, createEffect, onCleanup } from "solid-js";
 import { importLibrary } from "@googlemaps/js-api-loader";
 import { WaterLocation } from "../types/Map.types";
+import LogoLight from "../assets/images/perchfinder_logo_light.png";
 
 type MapsLib = Awaited<ReturnType<typeof importLibrary<"maps">>>;
 type MarkerLib = Awaited<ReturnType<typeof importLibrary<"marker">>>;
@@ -64,9 +65,7 @@ const WaterMarkerComponent: Component<Props> = (props) => {
     link.textContent = "Visa vatten";
     link.href = waterId ? "/vatten/" + waterId : "#";
     link.className = "water-info-window__link";
-    if (!water.detailPath || !waterId) {
-      link.setAttribute("aria-disabled", "true");
-    }
+    link.target = "_self";
     container.appendChild(link);
 
     return container;
@@ -99,10 +98,21 @@ const WaterMarkerComponent: Component<Props> = (props) => {
       const { AdvancedMarkerElement } = lib;
 
       markers = list.map((water) => {
+        const markerEl = document.createElement("div");
+        markerEl.className = "water-marker";
+
+        const img = document.createElement("img");
+        img.src = LogoLight;
+        img.alt = "Perch Finder";
+        img.width = 26;
+        img.height = 26;
+        markerEl.appendChild(img);
+
         const marker = new AdvancedMarkerElement({
           map: currentMap,
           position: water.location,
           title: water.name,
+          content: markerEl,
         });
 
         const listener = marker.addListener("click", () => {
