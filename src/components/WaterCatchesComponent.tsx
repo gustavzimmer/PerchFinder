@@ -64,9 +64,6 @@ const WaterCatchesComponent = () => {
                     <div class="catch-time">
                       {new Date(item.caughtAt).toLocaleString("sv-SE")}
                     </div>
-                    <Show when={item.userEmail}>
-                      <div class="catch-time">Registrerad av {item.userEmail}</div>
-                    </Show>
 
                     <div>
                         <h3>Bete</h3>

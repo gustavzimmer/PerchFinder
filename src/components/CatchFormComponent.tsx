@@ -25,6 +25,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
   const [isProcessingPhoto, setIsProcessingPhoto] = createSignal(false);
   const [selectedLureId, setSelectedLureId] = createSignal<string>("");
   const [lureQuery, setLureQuery] = createSignal("");
+  const [formError, setFormError] = createSignal<string | null>(null);
 
   /* Search for bait */
   const filteredLures = createMemo(() => {
@@ -177,17 +178,22 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
     props.onStatus(null);
-    props.onError(null);
+    setFormError(null);
 
     const id = props.waterId;
     if (!id) {
-      props.onError("Saknar vatten-id i URL:en.");
+      setFormError("Saknar vatten-id i URL:en.");
       return;
     }
 
     const user = auth.currentUser;
     if (!user) {
-      props.onError("Du måste vara inloggad för att registrera en fångst.");
+      setFormError("Du måste vara inloggad för att registrera en fångst.");
+      return;
+    }
+
+    if (!weight().trim() && !length().trim()) {
+      setFormError("Ange minst vikt eller längd för fångsten.");
       return;
     }
 
@@ -195,11 +201,11 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
     const lengthCm = parseNumber(length());
 
     if (weight().trim() && weightG === null) {
-      props.onError("Ogiltig vikt. Använd siffror, t.ex. 700");
+      setFormError("Ogiltig vikt. Använd siffror, t.ex. 700");
       return;
     }
     if (length().trim() && lengthCm === null) {
-      props.onError("Ogiltig längd. Använd siffror, t.ex. 35");
+      setFormError("Ogiltig längd. Använd siffror, t.ex. 35");
       return;
     }
 
@@ -239,7 +245,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
             } catch (err) {
 
               console.error("Kunde inte konvertera HEIC", err);
-              props.onError("Kunde inte hantera bilden. Försök igen eller använd JPG/PNG.");
+              setFormError("Kunde inte hantera bilden. Försök igen eller använd JPG/PNG.");
 
               setIsSaving(false);
               setIsProcessingPhoto(false);
@@ -283,7 +289,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
       resetForm();
     } catch (err) {
       console.error("Kunde inte spara fångsten", err);
-      props.onError("Det gick inte att spara fångsten just nu. Försök igen.");
+      setFormError("Det gick inte att spara fångsten just nu. Försök igen.");
     } finally {
       setIsSaving(false);
     }
@@ -300,6 +306,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
             </button>
           </header>
           <form class="catch-form" onSubmit={handleSubmit}>
+            {formError() && <div class="form-status error">{formError()}</div>}
             <label>
               <span>Vikt (Gram)</span>
               <input
@@ -393,13 +400,13 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
                   const isHeicByExt = /\.heic$|\.heif$/i.test(file.name);
 
                   if (!isImageType && !isHeicByExt) {
-                    props.onError("Endast bildfiler tillåtna.");
+                    setFormError("Endast bildfiler tillåtna.");
                     e.currentTarget.value = "";
                     setPhotoFile(null);
                     return;
                   }
 
-                  props.onError(null);
+                  setFormError(null);
                   setPhotoFile(file);
                 }}
               />
