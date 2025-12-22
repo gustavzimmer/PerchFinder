@@ -129,7 +129,7 @@ const WaterRecommendationsComponent: Component<Props> = (props) => {
     };
   });
 
-  const { recommendation, isLoading, error } = useWaterRecommendation(stats);
+  const { recommendation, isLoading, error } = useWaterRecommendation(() => stats());
 
   return (
     <section class="ai-recommendation">

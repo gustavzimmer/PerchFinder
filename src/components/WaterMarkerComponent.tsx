@@ -60,11 +60,6 @@ const WaterMarkerComponent: Component<Props> = (props) => {
 
     const waterId = water._id ?? "";
 
-    const catches = document.createElement("p");
-    const count = water.catchCount ?? 0;
-    catches.textContent = `Registrerade fångster: ${count}`;
-    container.appendChild(catches);
-
     const link = document.createElement("a");
     link.textContent = "Visa vatten";
     link.href = waterId ? "/vatten/" + waterId : "#";

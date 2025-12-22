@@ -259,27 +259,36 @@ body {
   inset: 0;
   background: rgba(17, 24, 39, 0.35);
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
+  align-items: flex-start;
+  justify-content: stretch;
+  padding: 1rem 0.75rem;
+  overflow-y: auto;
   z-index: 30;
 }
 
 .catch-modal {
   background: #fff;
-  border-radius: 14px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
-  width: min(520px, 100%);
-  padding: 1.25rem;
+  border-radius: 0;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
+  width: 100%;
+  max-height: calc(100vh - 1.5rem);
+  margin: 1rem auto;
+  padding: 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  overflow-y: auto;
+  position: relative;
 }
 
 .catch-modal__header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  position: sticky;
+  top: 0;
+  padding: 0.35rem 0;
+  background: linear-gradient(#fff 60%, rgba(255, 255, 255, 0.92));
 }
 
 .catch-form {
@@ -305,8 +314,43 @@ body {
 
 .catch-form__actions {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: stretch;
   gap: 0.5rem;
+  position: sticky;
+  bottom: 0;
+  padding: 0.5rem 0 0.25rem;
+  background: linear-gradient(rgba(255, 255, 255, 0.92), #fff 40%);
+}
+
+.catch-form__actions button {
+  width: 100%;
+}
+
+@media (min-width: 640px) {
+  .catch-overlay {
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+  }
+
+  .catch-modal {
+    border-radius: 14px;
+    width: min(560px, 100%);
+    max-height: min(90vh, 820px);
+    margin: 0 auto;
+    padding: 1.25rem;
+  }
+
+  .catch-form__actions {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .catch-form__actions button {
+    width: auto;
+  }
 }
 
 .link-button {
