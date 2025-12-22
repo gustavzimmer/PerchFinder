@@ -1,17 +1,44 @@
-import { For, Show } from "solid-js";
+import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
 import useGetCatches from "../hooks/useGetCatches";
 import { useParams } from "@solidjs/router";
+import { auth, catchCol } from "../firebase";
+import { deleteDoc, doc } from "firebase/firestore";
+import { onAuthStateChanged, type User } from "firebase/auth";
 
 const WaterCatchesComponent = () => {
   const params = useParams();
   const waterId = () => params.id;
 
   const catches = useGetCatches(() => waterId() ?? "");
+  const [currentUser, setCurrentUser] = createSignal<User | null>(auth.currentUser);
+  const [deletingId, setDeletingId] = createSignal<string | null>(null);
+  const [deleteError, setDeleteError] = createSignal<string | null>(null);
+
+  onMount(() => {
+    const unsub = onAuthStateChanged(auth, (user) => setCurrentUser(user));
+    onCleanup(() => unsub());
+  });
+
+  const handleDelete = async (catchId: string) => {
+    setDeleteError(null);
+    setDeletingId(catchId);
+    try {
+      await deleteDoc(doc(catchCol, catchId));
+    } catch (err) {
+      console.error("Kunde inte radera fångst", err);
+      setDeleteError("Kunde inte radera fångsten. Försök igen.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <section class="water-catches">
         
       <h2>Fångster</h2>
+      <Show when={deleteError()}>
+        <div class="form-status error">{deleteError()}</div>
+      </Show>
 
       <Show when={!catches.isLoading()} fallback={<div>Laddar fångster...</div>}>
         <Show when={catches.data() && catches.data()!.length > 0} fallback={<div>Inga fångster registrerade ännu.</div>}>
@@ -57,6 +84,17 @@ const WaterCatchesComponent = () => {
                         <p> { item.weatherSummary } </p>
                         <p> { item.pressureHpa } </p>
                     </div>
+
+                    <Show when={currentUser() && item.userId === currentUser()?.uid && item._id}>
+                      <button
+                        type="button"
+                        class="link-button"
+                        onClick={() => handleDelete(item._id!)}
+                        disabled={deletingId() === item._id}
+                      >
+                        {deletingId() === item._id ? "Raderar..." : "Radera"}
+                      </button>
+                    </Show>
 
                   </div>
 

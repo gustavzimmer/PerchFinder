@@ -8,6 +8,7 @@ export interface LureOption {
 }
 
 export interface Catch {
+  _id?: string;
   id?: string;
   waterId: string;
   weightG?: number | null;
