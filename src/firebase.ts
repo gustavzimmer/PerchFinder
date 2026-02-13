@@ -3,11 +3,13 @@ import { getAuth } from "firebase/auth";
 import {
   collection,
   CollectionReference,
-  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   type DocumentData,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import { WaterLocation } from "./types/Map.types";
+import { WaterLocation, WaterRequest } from "./types/Map.types";
 import { Catch } from "./types/Catch.types";
 
 // Config from env file
@@ -23,7 +25,11 @@ const firebaseConfig = {
 // initialize app
 const app = initializeApp(firebaseConfig);
 
-export const db = getFirestore(app);
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
+});
 
 export const storage = getStorage(app);
 
@@ -34,4 +40,5 @@ const createCollection = <T = DocumentData>(collectionName: string) => {
 };
 
 export const waterCol = createCollection<WaterLocation>("FiskeVatten");
+export const waterRequestCol = createCollection<WaterRequest>("FiskeVattenRequests");
 export const catchCol = createCollection<Catch>("Fangster");

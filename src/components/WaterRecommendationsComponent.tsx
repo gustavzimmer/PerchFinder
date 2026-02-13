@@ -1,5 +1,5 @@
 
-import { Component, Show, createMemo } from "solid-js";
+import { Component, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import useGetCatches from "../hooks/useGetCatches";
 import useWaterRecommendation, { WaterStatsPayload } from "../hooks/useWaterRecommendation";
 
@@ -7,6 +7,14 @@ type Props = {
   waterId: string;
   waterName?: string;
 };
+
+type CachedRecommendation = {
+  signature: string;
+  recommendation: string;
+  savedAt: string;
+};
+
+const RECOMMENDATION_CACHE_PREFIX = "perchfinder:water-reco:";
 
 const mapWeatherCode = (code: number | null | undefined) => {
   switch (code) {
@@ -66,10 +74,12 @@ const timeBucket = (iso: string) => {
 
 const WaterRecommendationsComponent: Component<Props> = (props) => {
   const catches = useGetCatches(() => props.waterId ?? "");
+  const [hasCachedRecommendation, setHasCachedRecommendation] = createSignal(false);
 
-  const stats = createMemo<WaterStatsPayload | null>(() => {
+  const stats = createMemo<WaterStatsPayload | null | undefined>(() => {
     const list = catches.data();
-    if (!list || list.length === 0) return null;
+    if (!list) return undefined;
+    if (list.length === 0) return null;
 
     const totalCatches = list.length;
 
@@ -129,20 +139,158 @@ const WaterRecommendationsComponent: Component<Props> = (props) => {
     };
   });
 
-  const { recommendation, isLoading, error } = useWaterRecommendation(() => stats());
+  const {
+    recommendation,
+    setCachedRecommendation,
+    isLoading,
+    error,
+    fetchRecommendation,
+    reset,
+  } = useWaterRecommendation();
+
+  const statsSignature = createMemo<string | null>(() => {
+    const currentStats = stats();
+    if (currentStats === undefined) return null;
+    if (currentStats === null) return "";
+    return JSON.stringify(currentStats);
+  });
+
+  const getStorageKey = () => {
+    if (!props.waterId) return "";
+    return `${RECOMMENDATION_CACHE_PREFIX}${props.waterId}`;
+  };
+
+  const readCachedRecommendation = () => {
+    if (typeof window === "undefined") return null;
+    const key = getStorageKey();
+    if (!key) return null;
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as CachedRecommendation;
+    } catch (err) {
+      console.warn("Kunde inte läsa AI-rekommendation från cache", err);
+      return null;
+    }
+  };
+
+  const writeCachedRecommendation = (signature: string, recommendationText: string) => {
+    if (typeof window === "undefined") return;
+    const key = getStorageKey();
+    if (!key) return;
+    try {
+      const payload: CachedRecommendation = {
+        signature,
+        recommendation: recommendationText,
+        savedAt: new Date().toISOString(),
+      };
+      window.localStorage.setItem(key, JSON.stringify(payload));
+    } catch (err) {
+      console.warn("Kunde inte spara AI-rekommendation", err);
+    }
+  };
+
+  const clearCachedRecommendation = () => {
+    if (typeof window === "undefined") return;
+    const key = getStorageKey();
+    if (!key) return;
+    window.localStorage.removeItem(key);
+  };
+
+  createEffect(() => {
+    const signature = statsSignature();
+    if (signature === null) return;
+
+    if (!signature) {
+      clearCachedRecommendation();
+      setHasCachedRecommendation(false);
+      reset();
+      return;
+    }
+
+    const cached = readCachedRecommendation();
+    if (cached && cached.signature === signature) {
+      setCachedRecommendation(cached.recommendation);
+      setHasCachedRecommendation(true);
+      return;
+    }
+
+    clearCachedRecommendation();
+    setHasCachedRecommendation(false);
+    reset();
+  });
+
+  onMount(() => {
+    if (typeof window === "undefined") return;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ waterId?: string }>).detail;
+      if (!detail?.waterId || detail.waterId !== props.waterId) return;
+      clearCachedRecommendation();
+      setHasCachedRecommendation(false);
+      reset();
+    };
+    window.addEventListener("perchfinder:catch-saved", handler as EventListener);
+    onCleanup(() => {
+      window.removeEventListener("perchfinder:catch-saved", handler as EventListener);
+    });
+  });
+
+  const canRequest = () => {
+    const currentStats = stats();
+    return !!currentStats && !hasCachedRecommendation();
+  };
+
+  const handleRequestRecommendation = async () => {
+    if (!canRequest()) return;
+    const currentStats = stats();
+    const signature = statsSignature();
+    if (!currentStats || !signature) return;
+    const nextRecommendation = await fetchRecommendation(currentStats);
+    if (nextRecommendation === null) return;
+    writeCachedRecommendation(signature, nextRecommendation);
+    setHasCachedRecommendation(true);
+  };
+
+  const recommendationText = createMemo(() => {
+    if (isLoading()) return "Hämtar rekommendation...";
+    const currentRecommendation = recommendation();
+    if (currentRecommendation !== null) {
+      return currentRecommendation || "Ingen rekommendation än.";
+    }
+    const currentStats = stats();
+    if (currentStats === undefined) return "Väntar på fångster...";
+    if (currentStats === null) return "Registrera en fångst för att få rekommendation.";
+    return "Klicka på \"Få rekommendation!\" för att hämta en.";
+  });
 
   return (
     <section class="ai-recommendation">
       <h2>Rekommendation</h2>
-      <Show
-        when={catches.isLoading()}
-        fallback={<div class="ai-reco-summary">Baserat på {stats()?.totalCatches ?? catches.data()?.length ?? 0} fångster.</div>}
-      >
+      <Show when={catches.isLoading()} fallback={
+        <Show
+          when={stats()}
+          fallback={<div class="ai-reco-summary">Registrera en fångst för att få rekommendation.</div>}
+        >
+          <div class="ai-reco-summary">Baserat på {stats()!.totalCatches} fångster.</div>
+        </Show>
+      }>
         <div>Laddar fångster...</div>
       </Show>
+
+      <Show when={canRequest()}>
+        <button
+          type="button"
+          class="primary-button"
+          onClick={handleRequestRecommendation}
+          disabled={isLoading()}
+        >
+          {isLoading() ? "Hämtar..." : "Få rekommendation!"}
+        </button>
+      </Show>
+
       {error() && <div class="form-status error">{error()}</div>}
       <div class="ai-reco__box">
-        {isLoading() ? "Hämtar rekommendation..." : recommendation() || "Ingen rekommendation än."}
+        {recommendationText()}
       </div>
     </section>
   );

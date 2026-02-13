@@ -1,4 +1,10 @@
-import { CollectionReference, doc, onSnapshot } from "firebase/firestore";
+import {
+  CollectionReference,
+  doc,
+  DocumentSnapshot,
+  getDoc,
+  getDocFromCache,
+} from "firebase/firestore";
 import { createEffect, createSignal, onCleanup } from "solid-js";
 
 const useGetDocument = <T>(
@@ -10,6 +16,7 @@ const useGetDocument = <T>(
   const [isLoading, setIsLoading] = createSignal(true);
 
   createEffect(() => {
+    let isActive = true;
     const id = documentId;
 
     if (!id) {
@@ -24,7 +31,7 @@ const useGetDocument = <T>(
 
     const docRef = doc(colRef, id);
 
-    const unsubscribe = onSnapshot(docRef, (snapshot) => {
+    const applySnapshot = (snapshot: DocumentSnapshot<T>) => {
       if (!snapshot.exists()) {
         setError("Document not found");
         setData(null);
@@ -39,9 +46,34 @@ const useGetDocument = <T>(
 
       setData(() => docData);
       setIsLoading(false);
-    });
+    };
 
-    onCleanup(() => unsubscribe());
+    const loadData = async () => {
+      try {
+        const cachedSnapshot = await getDocFromCache(docRef);
+        if (!isActive) return;
+        applySnapshot(cachedSnapshot);
+        return;
+      } catch {
+        // No cache available, fall back to server.
+      }
+
+      try {
+        const serverSnapshot = await getDoc(docRef);
+        if (!isActive) return;
+        applySnapshot(serverSnapshot);
+      } catch {
+        if (!isActive) return;
+        setError("Kunde inte hämta dokument.");
+        setIsLoading(false);
+      }
+    };
+
+    void loadData();
+
+    onCleanup(() => {
+      isActive = false;
+    });
   });
 
   return {

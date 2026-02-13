@@ -1,4 +1,4 @@
-import { Accessor, createEffect, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 
 export type WaterStatsPayload = {
   waterName: string;
@@ -10,49 +10,53 @@ export type WaterStatsPayload = {
   avgPressureHpa: number | null;
 };
 
-const useWaterRecommendation = (stats: Accessor<WaterStatsPayload | null>) => {
+const useWaterRecommendation = () => {
   const [recommendation, setRecommendation] = createSignal<string | null>(null);
   const [isLoading, setIsLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  let lastSignature = "";
 
-  createEffect(() => {
-    const s = stats();
-    if (!s) return;
-
-    const signature = JSON.stringify(s);
-    if (signature === lastSignature) return;
-    lastSignature = signature;
-
-    const fetchRecommendation = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const res = await fetch("https://getwaterrecommendation-bcdwkmqjia-uc.a.run.app", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ stats: s }),
-        });
-        if (!res.ok) {
-          throw new Error(`Request failed: ${res.status}`);
-        }
-        const json = await res.json();
-        setRecommendation(json.recommendation ?? "");
-      } catch (err) {
-        console.error("AI recommendation error", err);
-        setError("Kunde inte hämta rekommendation just nu.");
-      } finally {
-        setIsLoading(false);
+  const fetchRecommendation = async (stats: WaterStatsPayload) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("https://getwaterrecommendation-bcdwkmqjia-uc.a.run.app", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stats }),
+      });
+      if (!res.ok) {
+        throw new Error(`Request failed: ${res.status}`);
       }
-    };
+      const json = await res.json();
+      const nextRecommendation = json.recommendation ?? "";
+      setRecommendation(nextRecommendation);
+      return nextRecommendation as string;
+    } catch (err) {
+      console.error("AI recommendation error", err);
+      setError("Kunde inte hämta rekommendation just nu.");
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    fetchRecommendation();
-  });
+  const setCachedRecommendation = (value: string | null) => {
+    setRecommendation(value);
+    setError(null);
+  };
+
+  const reset = () => {
+    setRecommendation(null);
+    setError(null);
+  };
 
   return {
     recommendation,
+    setCachedRecommendation,
     isLoading,
     error,
+    fetchRecommendation,
+    reset,
   };
 };
 

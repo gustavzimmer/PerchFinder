@@ -9,6 +9,14 @@ const Navigation: Component = () => {
     const [currentUser, setCurrentUser] = createSignal<User | null>(auth.currentUser);
     const [isSigningOut, setIsSigningOut] = createSignal(false);
     const [isMenuOpen, setIsMenuOpen] = createSignal(false);
+    const adminEmails = (import.meta.env.VITE_ADMIN_EMAILS ?? "")
+        .split(",")
+        .map((email: string) => email.trim().toLowerCase())
+        .filter(Boolean);
+    const isAdmin = () => {
+        const email = currentUser()?.email?.toLowerCase();
+        return !!email && adminEmails.includes(email);
+    };
 
     onMount(() => {
         const unsub = onAuthStateChanged(auth, (user) => {
@@ -51,6 +59,11 @@ const Navigation: Component = () => {
                 <div class={`nav-links-group ${isMenuOpen() ? "is-open" : ""}`}>
                     <div class="nav-links">
                         <A href="/registrera-fiskevatten" onClick={() => setIsMenuOpen(false)}>Registrera vatten</A>
+                        {isAdmin() && (
+                            <A href="/admin/vattenforfragan" onClick={() => setIsMenuOpen(false)}>
+                                Admin: Godkänn vatten
+                            </A>
+                        )}
                     </div>
                     {currentUser() ? (
                         <div class="nav-links nav-auth">

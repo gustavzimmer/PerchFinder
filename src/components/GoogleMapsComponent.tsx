@@ -1,4 +1,4 @@
-import { Component, createEffect, createSignal, onMount } from "solid-js";
+import { Component, createEffect, createMemo, createSignal, onMount } from "solid-js";
 import { importLibrary, setOptions } from "@googlemaps/js-api-loader";
 import { geoLocation, WaterLocation } from "../types/Map.types";
 import useGetWaters from "../hooks/useGetWaters";
@@ -14,7 +14,12 @@ const MapId = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID;
 let hasConfiguredLoader = false;
 
 interface Props {
-  userLocation: geoLocation | null;
+  userLocation?: geoLocation | null;
+  selectionMode?: boolean;
+  selectedLocation?: geoLocation | null;
+  onSelectLocation?: (loc: geoLocation) => void;
+  visible?: boolean;
+  showSearch?: boolean;
 }
 
 const GoogleMap: Component<Props> = (props) => {
@@ -23,6 +28,8 @@ const GoogleMap: Component<Props> = (props) => {
   const [isLoading, setIsLoading] = createSignal(true);
   const [query, setQuery] = createSignal("");
   const [searchError, setSearchError] = createSignal<string | null>(null);
+  const [internalUserLocation, setInternalUserLocation] = createSignal<geoLocation | null>(null);
+  const [isSelectionMode, setIsSelectionMode] = createSignal(!!props.selectionMode);
 
   const watersData = useGetWaters();
   let mapContainer!: HTMLDivElement;
@@ -33,11 +40,28 @@ const GoogleMap: Component<Props> = (props) => {
   let searchInput!: HTMLInputElement;
   const defaultCenter = { lat: 59.3293, lng: 18.0686 }; // Stockholm
   const [markerLib, setMarkerLib] = createSignal<MarkerLib | null>(null);
+  type AdvancedMarker = InstanceType<MarkerLib["AdvancedMarkerElement"]>;
+  let selectionMarker: AdvancedMarker | null = null;
+  let hasInitialized = false;
+
+  const effectiveUserLocation = createMemo(() => props.userLocation ?? internalUserLocation());
+  const isVisible = createMemo(() => props.visible !== false);
+  const shouldShowSearch = createMemo(() => props.showSearch !== false);
 
   createEffect(() => {
     const fetchedWaters = watersData.data();
     if (fetchedWaters) {
       setWaters(fetchedWaters);
+    }
+  });
+
+  createEffect(() => {
+    setIsSelectionMode(!!props.selectionMode);
+    if (!props.selectionMode) {
+      if (selectionMarker) {
+        selectionMarker.map = null;
+        selectionMarker = null;
+      }
     }
   });
 
@@ -70,7 +94,7 @@ const GoogleMap: Component<Props> = (props) => {
 
       /* Map settings */
       const mapInstance = new Map(mapContainer, {
-        center: props.userLocation ?? defaultCenter,
+        center: effectiveUserLocation() ?? defaultCenter,
         zoom: 9,
         streetViewControl: false,
         fullscreenControl: false,
@@ -103,6 +127,13 @@ const GoogleMap: Component<Props> = (props) => {
           }
         });
       }
+
+      mapInstance.addListener("click", (e: { latLng: { lat: () => number; lng: () => number } | null }) => {
+        if (!isSelectionMode()) return;
+        if (!e.latLng) return;
+        const nextPos = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+        props.onSelectLocation?.(nextPos);
+      });
     } catch (err) {
       console.error("Google Maps kunde inte laddas", err);
       setError("Kartan kunde inte laddas just nu. Försök igen senare.");
@@ -112,15 +143,72 @@ const GoogleMap: Component<Props> = (props) => {
   };
 
   onMount(() => {
-    initializeMap();
+    if (!props.userLocation && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setInternalUserLocation({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+        },
+        (err) => {
+          console.warn("GeoLocation not supported: ", err);
+        }
+      );
+    }
   });
 
   createEffect(() => {
-    const loc = props.userLocation;
+    if (!isVisible() || hasInitialized) return;
+    hasInitialized = true;
+    void initializeMap();
+  });
+
+  createEffect(() => {
+    const loc = effectiveUserLocation();
     const currentMap = mapRef();
     if (currentMap && loc) {
       currentMap.setCenter(loc);
       currentMap.setZoom(13);
+    }
+  });
+
+  createEffect(() => {
+    const currentMap = mapRef();
+    const currentMarkerLib = markerLib();
+    const loc = props.selectedLocation ?? null;
+
+    if (!currentMap || !currentMarkerLib) return;
+    if (!isSelectionMode()) return;
+
+    if (!loc) {
+      if (selectionMarker) {
+        selectionMarker.map = null;
+        selectionMarker = null;
+      }
+      return;
+    }
+
+    if (!selectionMarker) {
+      const { AdvancedMarkerElement } = currentMarkerLib;
+      selectionMarker = new AdvancedMarkerElement({
+        map: currentMap,
+        position: loc,
+        title: "Vald plats",
+      });
+    } else {
+      selectionMarker.position = loc;
+      selectionMarker.map = currentMap;
+    }
+  });
+
+  createEffect(() => {
+    if (!isVisible()) return;
+    const currentMap = mapRef();
+    if (!currentMap) return;
+    const center = currentMap.getCenter();
+    if (center) {
+      currentMap.setCenter(center);
     }
   });
 
@@ -143,19 +231,23 @@ const GoogleMap: Component<Props> = (props) => {
   };
 
   return (
-    <section class="map-shell">
+    <section class={`map-shell ${isVisible() ? "" : "is-hidden"}`}>
         {/* Searchbar */}
-      <form class="map-search" onSubmit={searchAndCenter}>
-        <input
-          type="search"
-          placeholder={'Sök plats, t.ex. "Stockholm"'}
-          value={query()}
-          onInput={(e) => setQuery(e.currentTarget.value)}
-          ref={searchInput}
-        />
-        <button type="submit">Sök</button>
-      </form>
-      {searchError() && <div class="map-search__error">{searchError()}</div>}
+      {shouldShowSearch() && (
+        <>
+          <form class="map-search" onSubmit={searchAndCenter}>
+            <input
+              type="search"
+              placeholder={'Sök plats, t.ex. "Stockholm"'}
+              value={query()}
+              onInput={(e) => setQuery(e.currentTarget.value)}
+              ref={searchInput}
+            />
+            <button type="submit">Sök</button>
+          </form>
+          {searchError() && <div class="map-search__error">{searchError()}</div>}
+        </>
+      )}
 
       <div class="map-frame">
         <WaterMarkerComponent map={mapRef} markerLib={markerLib} waters={waters} />

@@ -15,6 +15,7 @@ export interface Catch {
   lengthCm?: number | null;
   notes?: string | null;
   photoUrl?: string | null;
+  photoUrls?: string[] | null;
   lure?: LureOption | null;
   weatherCode: number | null;
   weatherSummary?: string | null;

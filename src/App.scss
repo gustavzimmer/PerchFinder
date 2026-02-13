@@ -260,6 +260,14 @@ h3 {
   gap: 0.5rem;
 }
 
+.map-shell.is-hidden {
+  display: none;
+}
+
+.map-page.is-hidden {
+  display: none;
+}
+
 .map-frame {
   position: relative;
   height: clamp(320px, 50vh, 560px);
@@ -427,7 +435,7 @@ h3 {
   width: 100%;
   max-height: calc(100vh - 1.5rem);
   margin: 1rem auto;
-  padding: 1rem;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -442,13 +450,16 @@ h3 {
   align-items: center;
   position: sticky;
   top: 0;
-  padding: 0.35rem 0;
-  background: linear-gradient(var(--panel) 60%, rgba(17, 26, 41, 0.9));
+  padding: 1rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  z-index: 2;
 }
 
 .catch-form {
   display: grid;
   gap: 0.75rem;
+  padding: 0 1rem 1rem;
 }
 
 .catch-form label {
@@ -476,12 +487,53 @@ h3 {
   gap: 0.5rem;
   position: sticky;
   bottom: 0;
-  padding: 0.5rem 0 0.25rem;
-  background: linear-gradient(rgba(17, 26, 41, 0.92), var(--panel) 40%);
+  padding: 0.75rem 1rem 1rem;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  z-index: 2;
 }
 
 .catch-form__actions button {
   width: 100%;
+}
+
+.photo-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.photo-thumb {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.photo-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.photo-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
 }
 
 @media (min-width: 640px) {
@@ -496,7 +548,7 @@ h3 {
     width: min(560px, 100%);
     max-height: min(90vh, 820px);
     margin: 0 auto;
-    padding: 1.25rem;
+    padding: 0;
   }
 
   .catch-form__actions {
@@ -560,7 +612,8 @@ h3 {
   font-size: 0.95rem;
 }
 
-.catch-photo {
+.catch-slider {
+  position: relative;
   margin: 0.35rem 0 0.5rem;
   border-radius: 12px;
   overflow: hidden;
@@ -569,10 +622,67 @@ h3 {
   background: var(--panel-2);
 }
 
-.catch-photo img {
+.catch-slider__track {
+  display: flex;
+  width: 100%;
+  transition: transform 200ms ease;
+}
+
+.catch-slide {
+  min-width: 100%;
+  background: var(--panel-2);
+}
+
+.catch-slide img {
   width: 100%;
   display: block;
-  max-width: 350px;
+  max-width: 360px;
+  height: 220px;
+  object-fit: cover;
+}
+
+.slider-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.slider-btn.prev {
+  left: 8px;
+}
+
+.slider-btn.next {
+  right: 8px;
+}
+
+.slider-dots {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+}
+
+.slider-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+}
+
+.slider-dot.is-active {
+  background: var(--accent);
 }
 
 .catch-notes {

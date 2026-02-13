@@ -1,8 +1,10 @@
 import {
   CollectionReference,
-  onSnapshot,
+  getDocs,
+  getDocsFromCache,
   query,
   QueryConstraint,
+  QuerySnapshot,
 } from "firebase/firestore";
 import { createEffect, createSignal, onCleanup } from "solid-js";
 
@@ -14,9 +16,10 @@ const useGetCollection = <T> (
     const [isLoading, setIsLoading] = createSignal(true)
 
     createEffect(() => {
+        let isActive = true;
         const queryRef = query(colRef, ...queryConstraints);
 
-        const unSub = onSnapshot(queryRef, (snapshot) => {
+        const applySnapshot = (snapshot: QuerySnapshot<T>) => {
             const data = snapshot.docs.map((doc) => {
                 return {
                     ...doc.data(),
@@ -26,9 +29,35 @@ const useGetCollection = <T> (
 
             setData(data);
             setIsLoading(false);
-        });
+        };
 
-        onCleanup(() => unSub());
+        const loadData = async () => {
+            setIsLoading(true);
+
+            try {
+                const cachedSnapshot = await getDocsFromCache(queryRef);
+                if (!isActive) return;
+                applySnapshot(cachedSnapshot);
+                return;
+            } catch {
+                // No cache available, fall back to server.
+            }
+
+            try {
+                const serverSnapshot = await getDocs(queryRef);
+                if (!isActive) return;
+                applySnapshot(serverSnapshot);
+            } catch {
+                if (!isActive) return;
+                setIsLoading(false);
+            }
+        };
+
+        void loadData();
+
+        onCleanup(() => {
+            isActive = false;
+        });
     });
 
     return{

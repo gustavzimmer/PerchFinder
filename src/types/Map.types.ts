@@ -19,3 +19,12 @@ export interface WaterLocation {
     catchCount?: number
     detailPath?: string
 }
+
+export interface WaterRequest {
+    _id?: string
+    name: string
+    location: geoLocation
+    requestedAt?: unknown
+    requestedBy?: string | null
+    requestedByEmail?: string | null
+}

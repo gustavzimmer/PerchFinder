@@ -1,4 +1,4 @@
-import { Component, For, Setter, createMemo, createSignal } from "solid-js";
+import { Component, For, Show, Setter, createMemo, createSignal, onCleanup } from "solid-js";
 import { addDoc, serverTimestamp } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { auth, catchCol, storage } from "../firebase";
@@ -19,9 +19,11 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
   const [length, setLength] = createSignal("");
   const nowLocalInput = () => new Date().toISOString().slice(0, 16);
   const [caughtAt, setCaughtAt] = createSignal(nowLocalInput());
+  const [hasTouchedCaughtAt, setHasTouchedCaughtAt] = createSignal(false);
   const [notes, setNotes] = createSignal("");
   const [isSaving, setIsSaving] = createSignal(false);
-  const [photoFile, setPhotoFile] = createSignal<File | null>(null);
+  const [photoFiles, setPhotoFiles] = createSignal<File[]>([]);
+  const [photoPreviews, setPhotoPreviews] = createSignal<string[]>([]);
   const [isProcessingPhoto, setIsProcessingPhoto] = createSignal(false);
   const [selectedLureId, setSelectedLureId] = createSignal<string>("");
   const [lureQuery, setLureQuery] = createSignal("");
@@ -43,8 +45,18 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
     setLength("");
     setNotes("");
     setCaughtAt(nowLocalInput());
-    setPhotoFile(null);
+    clearPhotos();
   };
+
+  const clearPhotos = () => {
+    photoPreviews().forEach((src) => URL.revokeObjectURL(src));
+    setPhotoFiles([]);
+    setPhotoPreviews([]);
+  };
+
+  onCleanup(() => {
+    clearPhotos();
+  });
 
   const parseNumber = (value: string) => {
     const trimmed = value.trim();
@@ -92,6 +104,185 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
     );
     await uploadBytes(storageRef, file, { contentType: file.type });
     return getDownloadURL(storageRef);
+  };
+
+  const parseExifDateString = (value: string) => {
+    const trimmed = value.trim();
+    const match = /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(trimmed);
+    if (!match) return null;
+    const [, year, month, day, hour, minute, second] = match;
+    const date = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second)
+    );
+    if (Number.isNaN(date.getTime())) return null;
+    return date;
+  };
+
+  const formatDateTimeLocal = (date: Date) => {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+      date.getHours()
+    )}:${pad(date.getMinutes())}`;
+  };
+
+  const readExifDate = async (file: File) => {
+    const isJpeg =
+      file.type === "image/jpeg" ||
+      /\.jpe?g$/i.test(file.name);
+    if (!isJpeg) return null;
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const view = new DataView(buffer);
+      if (view.byteLength < 4 || view.getUint16(0, false) !== 0xffd8) return null;
+
+      let offset = 2;
+      while (offset + 4 < view.byteLength) {
+        const marker = view.getUint16(offset, false);
+        const size = view.getUint16(offset + 2, false);
+        if (marker === 0xffe1) {
+          const exifHeaderOffset = offset + 4;
+          if (exifHeaderOffset + 6 >= view.byteLength) return null;
+          const exifHeader = String.fromCharCode(
+            view.getUint8(exifHeaderOffset),
+            view.getUint8(exifHeaderOffset + 1),
+            view.getUint8(exifHeaderOffset + 2),
+            view.getUint8(exifHeaderOffset + 3)
+          );
+          if (exifHeader !== "Exif") return null;
+
+          const tiffOffset = exifHeaderOffset + 6;
+          const endian = view.getUint16(tiffOffset, false);
+          const littleEndian = endian === 0x4949;
+          const readUint16 = (pos: number) => view.getUint16(pos, littleEndian);
+          const readUint32 = (pos: number) => view.getUint32(pos, littleEndian);
+
+          const firstIfdOffset = readUint32(tiffOffset + 4);
+          if (firstIfdOffset === 0) return null;
+          const ifd0Offset = tiffOffset + firstIfdOffset;
+          const entries = readUint16(ifd0Offset);
+          let exifIfdOffset: number | null = null;
+
+          for (let i = 0; i < entries; i++) {
+            const entryOffset = ifd0Offset + 2 + i * 12;
+            const tag = readUint16(entryOffset);
+            if (tag === 0x8769) {
+              exifIfdOffset = tiffOffset + readUint32(entryOffset + 8);
+              break;
+            }
+          }
+
+          if (!exifIfdOffset) return null;
+
+          const exifEntries = readUint16(exifIfdOffset);
+          for (let i = 0; i < exifEntries; i++) {
+            const entryOffset = exifIfdOffset + 2 + i * 12;
+            const tag = readUint16(entryOffset);
+            if (tag !== 0x9003 && tag !== 0x9004 && tag !== 0x0132) continue;
+            const type = readUint16(entryOffset + 2);
+            const count = readUint32(entryOffset + 4);
+            if (type !== 2 || count === 0) continue;
+            let valueOffset = entryOffset + 8;
+            if (count > 4) {
+              valueOffset = tiffOffset + readUint32(entryOffset + 8);
+            }
+
+            let value = "";
+            for (let j = 0; j < count; j++) {
+              const charCode = view.getUint8(valueOffset + j);
+              if (charCode === 0) break;
+              value += String.fromCharCode(charCode);
+            }
+            const parsed = parseExifDateString(value);
+            if (parsed) return parsed;
+          }
+          return null;
+        }
+
+        if (size < 2) break;
+        offset += 2 + size;
+      }
+    } catch (err) {
+      console.warn("Kunde inte läsa EXIF-data", err);
+    }
+
+    return null;
+  };
+
+  const maybeSetCaughtAtFromExif = async (files: File[]) => {
+    if (hasTouchedCaughtAt() || files.length === 0) return;
+    for (const file of files) {
+      const date = await readExifDate(file);
+      if (date) {
+        setCaughtAt(formatDateTimeLocal(date));
+        return;
+      }
+    }
+  };
+
+  const addPhotos = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setFormError(null);
+
+    const currentFiles = photoFiles();
+    const currentPreviews = photoPreviews();
+    const remainingSlots = 2 - currentFiles.length;
+
+    if (remainingSlots <= 0) {
+      setFormError("Du kan max lägga till 2 bilder.");
+      return;
+    }
+
+    const incoming = Array.from(files).slice(0, remainingSlots);
+    const validIncoming = incoming.filter((file) => {
+      const isImageType = file.type.startsWith("image/");
+      const isHeicByExt = /\.heic$|\.heif$/i.test(file.name);
+      return isImageType || isHeicByExt;
+    });
+
+    if (validIncoming.length !== incoming.length) {
+      setFormError("Endast bildfiler tillåtna.");
+    }
+
+    if (validIncoming.length === 0) return;
+
+    setIsProcessingPhoto(true);
+    try {
+      const normalizedFiles: File[] = [];
+      for (const file of validIncoming) {
+        const normalized = isHeicFile(file) ? await normalizeHeicToJpeg(file) : file;
+        normalizedFiles.push(normalized);
+      }
+      const nextFiles = [...currentFiles, ...normalizedFiles].slice(0, 2);
+      const nextPreviews = [
+        ...currentPreviews,
+        ...normalizedFiles.map((file) => URL.createObjectURL(file)),
+      ].slice(0, 2);
+      setPhotoFiles(nextFiles);
+      setPhotoPreviews(nextPreviews);
+      void maybeSetCaughtAtFromExif(normalizedFiles);
+    } catch (err) {
+      console.error("Kunde inte hantera bilden", err);
+      setFormError("Kunde inte hantera bilden. Försök igen.");
+    } finally {
+      setIsProcessingPhoto(false);
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    const currentFiles = photoFiles();
+    const currentPreviews = photoPreviews();
+    const targetPreview = currentPreviews[index];
+    if (targetPreview) {
+      URL.revokeObjectURL(targetPreview);
+    }
+    setPhotoFiles(currentFiles.filter((_, i) => i !== index));
+    setPhotoPreviews(currentPreviews.filter((_, i) => i !== index));
   };
 
   const mapWeatherCode = (code: number | null | undefined) => {
@@ -228,39 +419,16 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
     try {
       setIsSaving(true);
 
-      if (photoFile()) {
-
-        let file = photoFile();
-
-        if (file) {
-
-          if (isHeicFile(file)) {
-
-            setIsProcessingPhoto(true);
-
-            try {
-
-              file = await normalizeHeicToJpeg(file);
-
-            } catch (err) {
-
-              console.error("Kunde inte konvertera HEIC", err);
-              setFormError("Kunde inte hantera bilden. Försök igen eller använd JPG/PNG.");
-
-              setIsSaving(false);
-              setIsProcessingPhoto(false);
-
-              return;
-            } finally {
-
-              setIsProcessingPhoto(false);
-
-            }
-          }
-
-          payload.photoUrl = await uploadPhoto(file, id);
-
+      if (photoFiles().length > 0) {
+        setIsProcessingPhoto(true);
+        const urls: string[] = [];
+        for (const file of photoFiles()) {
+          const normalized = isHeicFile(file) ? await normalizeHeicToJpeg(file) : file;
+          const url = await uploadPhoto(normalized, id);
+          urls.push(url);
         }
+        payload.photoUrls = urls;
+        payload.photoUrl = urls[0] ?? null;
       }
       if (selectedLureId()) {
         
@@ -284,6 +452,11 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
         ...payload,
         createdAt: serverTimestamp(),
       });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("perchfinder:catch-saved", { detail: { waterId: id } })
+        );
+      }
       props.onStatus("Fångst sparad!");
       props.onClose();
       resetForm();
@@ -291,6 +464,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
       console.error("Kunde inte spara fångsten", err);
       setFormError("Det gick inte att spara fångsten just nu. Försök igen.");
     } finally {
+      setIsProcessingPhoto(false);
       setIsSaving(false);
     }
   };
@@ -312,7 +486,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
               <input
                 type="text"
                 inputMode="decimal"
-                placeholder="t.ex. 1.2"
+                placeholder="t.ex. 720"
                 value={weight()}
                 onInput={(e) => setWeight(e.currentTarget.value)}
               />
@@ -334,7 +508,10 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
               <input
                 type="datetime-local"
                 value={caughtAt()}
-                onInput={(e) => setCaughtAt(e.currentTarget.value)}
+                onInput={(e) => {
+                  setCaughtAt(e.currentTarget.value);
+                  setHasTouchedCaughtAt(true);
+                }}
               />
             </label>
 
@@ -388,29 +565,34 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
               <span>Bild</span>
               <input
                 type="file"
-                accept="image/*"
+                accept="image/*,.heic,.heif"
+                multiple
                 onChange={(e) => {
-                  const file = e.currentTarget.files?.[0] ?? null;
-                  if (!file) {
-                    setPhotoFile(null);
-                    return;
-                  }
-
-                  const isImageType = file.type.startsWith("image/");
-                  const isHeicByExt = /\.heic$|\.heif$/i.test(file.name);
-
-                  if (!isImageType && !isHeicByExt) {
-                    setFormError("Endast bildfiler tillåtna.");
-                    e.currentTarget.value = "";
-                    setPhotoFile(null);
-                    return;
-                  }
-
-                  setFormError(null);
-                  setPhotoFile(file);
+                  void addPhotos(e.currentTarget.files);
+                  e.currentTarget.value = "";
                 }}
               />
             </label>
+
+            <Show when={photoPreviews().length > 0}>
+              <div class="photo-thumbs">
+                <For each={photoPreviews()}>
+                  {(src, index) => (
+                    <div class="photo-thumb">
+                      <img src={src} alt="Vald bild" />
+                      <button
+                        type="button"
+                        class="photo-remove"
+                        onClick={() => removePhoto(index())}
+                        aria-label="Ta bort bild"
+                      >
+                        x
+                      </button>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
 
             <div class="catch-form__actions">
               <button type="button" onClick={() => props.onClose()}>

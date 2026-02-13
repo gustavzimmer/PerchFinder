@@ -1,4 +1,4 @@
-import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import useGetCatches from "../hooks/useGetCatches";
 import { useParams } from "@solidjs/router";
 import { auth, catchCol } from "../firebase";
@@ -44,59 +44,126 @@ const WaterCatchesComponent = () => {
         <Show when={catches.data() && catches.data()!.length > 0} fallback={<div>Inga fångster registrerade ännu.</div>}>
           <ul class="catch-list">
             <For each={catches.data()}>
-              {(item) => (
-                <li class="catch-card" data-id={item._id}>
-                  <div class="catch-meta">
+              {(item) => {
+                const photos = () =>
+                  item.photoUrls && item.photoUrls.length > 0
+                    ? item.photoUrls
+                    : item.photoUrl
+                      ? [item.photoUrl]
+                      : [];
+                const [photoIndex, setPhotoIndex] = createSignal(0);
+                const photoCount = () => photos().length;
 
-                    {item.photoUrl && (
+                createEffect(() => {
+                  if (photoIndex() >= photoCount()) {
+                    setPhotoIndex(0);
+                  }
+                });
 
-                        <div class="catch-photo">
-                            <img src={item.photoUrl} alt="Fångstbild" loading="lazy" />
+                const goPrev = () => {
+                  const count = photoCount();
+                  if (count <= 1) return;
+                  setPhotoIndex((index) => (index - 1 + count) % count);
+                };
+
+                const goNext = () => {
+                  const count = photoCount();
+                  if (count <= 1) return;
+                  setPhotoIndex((index) => (index + 1) % count);
+                };
+
+                return (
+                  <li class="catch-card" data-id={item._id}>
+                    <div class="catch-meta">
+                      <Show when={photoCount() > 0}>
+                        <div class="catch-slider">
+                          <div
+                            class="catch-slider__track"
+                            style={{ transform: `translateX(-${photoIndex() * 100}%)` }}
+                          >
+                            <For each={photos()}>
+                              {(src) => (
+                                <div class="catch-slide">
+                                  <img src={src} alt="Fångstbild" loading="lazy" />
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                          <Show when={photoCount() > 1}>
+                            <button
+                              type="button"
+                              class="slider-btn prev"
+                              onClick={goPrev}
+                              aria-label="Föregående bild"
+                            >
+                              {"<"}
+                            </button>
+                            <button
+                              type="button"
+                              class="slider-btn next"
+                              onClick={goNext}
+                              aria-label="Nästa bild"
+                            >
+                              {">"}
+                            </button>
+                            <div class="slider-dots" role="tablist" aria-label="Bildval">
+                              <For each={photos()}>
+                                {(_, index) => (
+                                  <button
+                                    type="button"
+                                    class={`slider-dot ${index() === photoIndex() ? "is-active" : ""}`}
+                                    onClick={() => setPhotoIndex(index())}
+                                    aria-label={`Bild ${index() + 1}`}
+                                  />
+                                )}
+                              </For>
+                            </div>
+                          </Show>
                         </div>
+                      </Show>
 
-                    )}
+                      <div>
+                        <strong>{item.weightG ? `${item.weightG} g` : "Okänd vikt"}</strong>{" "}
+                        {item.lengthCm ? ` | ${item.lengthCm} cm` : null}
+                      </div>
 
-                    <div>
-                      <strong>{item.weightG ? `${item.weightG} g` : "Okänd vikt"}</strong>{" "}
-                      {item.lengthCm ? ` | ${item.lengthCm} cm` : null}
-                    </div>
+                      <div class="catch-time">
+                        {new Date(item.caughtAt).toLocaleString("sv-SE")}
+                      </div>
 
-                    <div class="catch-time">
-                      {new Date(item.caughtAt).toLocaleString("sv-SE")}
-                    </div>
-
-                    <div>
+                      <div>
                         <h3>Bete</h3>
                         <p>{item.lure ? `${item.lure.brand} ${item.lure.name} ${item.lure.size} ${item.lure.type} ${item.lure.color}` : "Inget bete tillagt"}</p>
-                    </div>
+                      </div>
 
-                    {item.notes && (
+                      {item.notes && (
                         <div>
-                            <h3>Kommentar</h3>
-                            <p class="catch-notes">{item.notes}</p>
+                          <h3>Kommentar</h3>
+                          <p class="catch-notes">{item.notes}</p>
                         </div>
-                    )}
+                      )}
 
-                    <div>
+                      <div>
                         <p> { item.weatherSummary } </p>
                         <p> { item.pressureHpa } </p>
+                      </div>
+
+                      <Show when={currentUser() && item.userId === currentUser()?.uid && item._id}>
+                        <button
+                          type="button"
+                          class="link-button"
+                          onClick={() => handleDelete(item._id!)}
+                          disabled={deletingId() === item._id}
+                        >
+                          {deletingId() === item._id ? "Raderar..." : "Radera"}
+                        </button>
+                      </Show>
+
                     </div>
 
-                    <Show when={currentUser() && item.userId === currentUser()?.uid && item._id}>
-                      <button
-                        type="button"
-                        class="link-button"
-                        onClick={() => handleDelete(item._id!)}
-                        disabled={deletingId() === item._id}
-                      >
-                        {deletingId() === item._id ? "Raderar..." : "Radera"}
-                      </button>
-                    </Show>
-
-                  </div>
-
-                </li>
-              )}
+                  </li>
+                );
+              }}
             </For>
           </ul>
         </Show>
