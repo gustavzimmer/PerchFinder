@@ -73,7 +73,6 @@ const AdminWaterRequestsPage: Component = () => {
   const [deletingLureId, setDeletingLureId] = createSignal<string | null>(null);
   const [newLureName, setNewLureName] = createSignal("");
   const [newLureBrand, setNewLureBrand] = createSignal("");
-  const [newLureType, setNewLureType] = createSignal("");
   const [newLureSize, setNewLureSize] = createSignal("");
   const [newLureColor, setNewLureColor] = createSignal("");
   const [newLureCategory, setNewLureCategory] = createSignal("");
@@ -94,7 +93,7 @@ const AdminWaterRequestsPage: Component = () => {
     const queryText = lureSearchQuery().trim().toLowerCase();
     if (!queryText) return lures();
     return lures().filter((lure) =>
-      [lure.brand, lure.name, lure.type, lure.size, lure.color, lure.category ?? ""].some((field) =>
+      [lure.brand, lure.name, lure.size, lure.color, lure.category ?? ""].some((field) =>
         String(field ?? "").toLowerCase().includes(queryText)
       )
     );
@@ -361,7 +360,6 @@ const AdminWaterRequestsPage: Component = () => {
   const clearLureForm = () => {
     setNewLureName("");
     setNewLureBrand("");
-    setNewLureType("");
     setNewLureSize("");
     setNewLureColor("");
     setNewLureCategory("");
@@ -374,13 +372,12 @@ const AdminWaterRequestsPage: Component = () => {
 
     const name = newLureName().trim();
     const brand = newLureBrand().trim();
-    const type = newLureType().trim();
     const size = newLureSize().trim();
     const color = newLureColor().trim();
     const category = newLureCategory().trim();
 
-    if (!name || !brand || !type || !size || !color || !category) {
-      setLureFormError("Fyll i namn, märke, typ, storlek, färg och kategori.");
+    if (!name || !brand || !size || !color || !category) {
+      setLureFormError("Fyll i namn, märke, storlek, färg och kategori.");
       return;
     }
     if (!LURE_CATEGORIES.includes(category as (typeof LURE_CATEGORIES)[number])) {
@@ -395,7 +392,6 @@ const AdminWaterRequestsPage: Component = () => {
         id: lureRef.id,
         name,
         brand,
-        type,
         size,
         color,
         category,
@@ -409,7 +405,6 @@ const AdminWaterRequestsPage: Component = () => {
             id: lureRef.id,
             name,
             brand,
-            type,
             size,
             color,
             category,
@@ -517,15 +512,6 @@ const AdminWaterRequestsPage: Component = () => {
                   />
                 </label>
                 <label>
-                  <span>Typ</span>
-                  <input
-                    type="text"
-                    value={newLureType()}
-                    onInput={(e) => setNewLureType(e.currentTarget.value)}
-                    placeholder="t.ex. Gummibete"
-                  />
-                </label>
-                <label>
                   <span>Storlek</span>
                   <input
                     type="text"
@@ -581,7 +567,7 @@ const AdminWaterRequestsPage: Component = () => {
               <div class="admin-lure-toolbar">
                 <input
                   type="search"
-                  placeholder="Sök på märke, namn, typ, storlek, färg eller kategori"
+                  placeholder="Sök på märke, namn, storlek, färg eller kategori"
                   value={lureSearchQuery()}
                   onInput={(e) => setLureSearchQuery(e.currentTarget.value)}
                 />
@@ -599,8 +585,8 @@ const AdminWaterRequestsPage: Component = () => {
                               {lure.brand} {lure.name}
                             </strong>
                             <small>
-                              {lure.type || "Okänd typ"} • {lure.size || "Okänd storlek"} •{" "}
-                              {lure.color || "Okänd färg"} • {lure.category || "Saknar kategori"}
+                              {lure.size || "Okänd storlek"} • {lure.color || "Okänd färg"} •{" "}
+                              {lure.category || "Saknar kategori"}
                             </small>
                           </div>
                           <button

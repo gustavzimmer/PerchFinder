@@ -442,11 +442,11 @@ const ProfilePage: Component = () => {
                           <Show when={item.lure || item.method}>
                             <div>
                               <h3>Bete</h3>
-                              <p>
-                                {item.lure
-                                  ? `${item.lure.brand} ${item.lure.name} ${item.lure.size} ${item.lure.type} ${item.lure.color}`
+                                <p>
+                                  {item.lure
+                                  ? `${item.lure.brand} ${item.lure.name} ${item.lure.size} ${item.lure.color}`
                                   : "Inget bete tillagt"}
-                              </p>
+                                </p>
                               <Show when={item.lure?.category}>
                                 <p>Kategori: {item.lure?.category}</p>
                               </Show>

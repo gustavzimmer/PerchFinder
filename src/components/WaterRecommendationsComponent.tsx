@@ -95,9 +95,11 @@ const lureLabel = (item: Catch) => {
   return parts.join(" ").trim() || "Okänt bete";
 };
 
-const lureTypeLabel = (item: Catch) => {
-  const type = item.lure?.type?.trim();
-  return type || null;
+const lureCategoryLabel = (item: Catch) => {
+  const category = item.lure?.category?.trim();
+  if (category) return category;
+  const legacyType = item.lure?.type?.trim();
+  return legacyType || null;
 };
 
 const normalizeMethod = (item: Catch) => {
@@ -159,7 +161,7 @@ const buildSimilarWhenLikeNow = (
       comparedCatchCount: 0,
       matchedCatchCount: 0,
       topLures: [],
-      topLureTypes: [],
+      topLureCategories: [],
       topMethods: [],
       topJigMethods: [],
       topTimesOfDay: [],
@@ -195,7 +197,7 @@ const buildSimilarWhenLikeNow = (
     .map((entry) => entry.item);
 
   const lureCount: Record<string, number> = {};
-  const lureTypeCount: Record<string, number> = {};
+  const lureCategoryCount: Record<string, number> = {};
   const methodCount: Record<string, number> = {};
   const jigMethodCount: Record<string, number> = {};
   const timeCount: Record<string, number> = {};
@@ -206,8 +208,8 @@ const buildSimilarWhenLikeNow = (
   matched.forEach((item) => {
     const lure = lureLabel(item);
     if (lure) incrementCount(lureCount, lure);
-    const lureType = lureTypeLabel(item);
-    if (lureType) incrementCount(lureTypeCount, lureType);
+    const lureCategory = lureCategoryLabel(item);
+    if (lureCategory) incrementCount(lureCategoryCount, lureCategory);
 
     const method = normalizeMethod(item);
     if (method) {
@@ -233,7 +235,7 @@ const buildSimilarWhenLikeNow = (
     comparedCatchCount: comparable.length,
     matchedCatchCount: matched.length,
       topLures: topLabels(lureCount, 3),
-      topLureTypes: topLabels(lureTypeCount, 3),
+      topLureCategories: topLabels(lureCategoryCount, 3),
       topMethods: topLabels(methodCount, 3),
       topJigMethods: topLabels(jigMethodCount, 3),
       topTimesOfDay: topLabels(timeCount, 2),
@@ -253,7 +255,7 @@ const WaterRecommendationsComponent: Component<Props> = (props) => {
     if (list.length === 0) return null;
 
     const lureCount: Record<string, number> = {};
-    const lureTypeCount: Record<string, number> = {};
+    const lureCategoryCount: Record<string, number> = {};
     const methodCount: Record<string, number> = {};
     const jigMethodCount: Record<string, number> = {};
     const timeCount: Record<string, number> = {};
@@ -264,8 +266,8 @@ const WaterRecommendationsComponent: Component<Props> = (props) => {
     list.forEach((item) => {
       const lure = lureLabel(item);
       if (lure) incrementCount(lureCount, lure);
-      const lureType = lureTypeLabel(item);
-      if (lureType) incrementCount(lureTypeCount, lureType);
+      const lureCategory = lureCategoryLabel(item);
+      if (lureCategory) incrementCount(lureCategoryCount, lureCategory);
 
       const method = normalizeMethod(item);
       if (method) {
@@ -299,7 +301,7 @@ const WaterRecommendationsComponent: Component<Props> = (props) => {
       totalCatches: list.length,
       general: {
         topLures: topLabels(lureCount, 4),
-        topLureTypes: topLabels(lureTypeCount, 4),
+        topLureCategories: topLabels(lureCategoryCount, 4),
         topMethods: topLabels(methodCount, 4),
         topJigMethods: topLabels(jigMethodCount, 4),
         bestTimeOfDay,

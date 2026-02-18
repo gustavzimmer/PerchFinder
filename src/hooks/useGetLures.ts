@@ -4,7 +4,7 @@ import type { LureOption } from "../types/Catch.types";
 import useGetCollection from "./useGetCollection";
 
 const hasCompleteLureInfo = (lure: LureOption) => {
-  const fields = [lure.name, lure.brand, lure.type, lure.size, lure.color];
+  const fields = [lure.name, lure.brand, lure.size, lure.color, lure.category ?? ""];
   if (fields.some((field) => !field || !field.trim())) return false;
   return !fields.some((field) => /varierar/i.test(field));
 };

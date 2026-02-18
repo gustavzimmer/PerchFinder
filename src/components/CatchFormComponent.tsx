@@ -32,8 +32,9 @@ const SOFT_PLASTIC_METHODS = [
 
 const isSoftPlasticLure = (lure: LureOption | null | undefined) => {
   if (!lure) return false;
-  const type = lure.type.toLowerCase();
-  return /jigg|shad|gummi|soft|swimbait/.test(type);
+  const category = (lure.category ?? "").toLowerCase();
+  const legacyType = (lure.type ?? "").toLowerCase();
+  return /jigg|shad|gummi|soft|swimbait/.test(category) || /jigg|shad|gummi|soft|swimbait/.test(legacyType);
 };
 
 const CatchFormModal: Component<CatchFormModalProps> = (props) => {
@@ -63,8 +64,8 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
     const q = lureQuery().toLowerCase().trim();
     if (!q) return availableLures();
     return availableLures().filter((lure) =>
-      [lure.name, lure.brand, lure.type, lure.size, lure.color, lure.category ?? ""].some((field) =>
-        field.toLowerCase().includes(q)
+      [lure.name, lure.brand, lure.size, lure.color, lure.category ?? ""].some((field) =>
+        String(field ?? "").toLowerCase().includes(q)
       )
     );
   });
@@ -128,7 +129,10 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
 
     const blob = Array.isArray(result) ? result[0] : result;
     const newName = file.name.replace(/\.(heic|heif)$/i, "") || "photo";
-    return new File([blob], `${newName}.jpg`, { type: "image/jpeg" });
+    return new File([blob], `${newName}.jpg`, {
+      type: "image/jpeg",
+      lastModified: file.lastModified,
+    });
   };
 
   const uploadPhoto = async (file: File, waterId: string) => {
@@ -201,6 +205,38 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
           const firstIfdOffset = readUint32(tiffOffset + 4);
           if (firstIfdOffset === 0) return null;
           const ifd0Offset = tiffOffset + firstIfdOffset;
+          const readDateFromIfd = (ifdOffset: number, allowedTags: number[]) => {
+            if (ifdOffset <= 0 || ifdOffset + 2 > view.byteLength) return null;
+            const entries = readUint16(ifdOffset);
+            for (let i = 0; i < entries; i++) {
+              const entryOffset = ifdOffset + 2 + i * 12;
+              if (entryOffset + 12 > view.byteLength) break;
+              const tag = readUint16(entryOffset);
+              if (!allowedTags.includes(tag)) continue;
+              const type = readUint16(entryOffset + 2);
+              const count = readUint32(entryOffset + 4);
+              if (type !== 2 || count === 0) continue;
+              let valueOffset = entryOffset + 8;
+              if (count > 4) {
+                valueOffset = tiffOffset + readUint32(entryOffset + 8);
+              }
+              if (valueOffset < 0 || valueOffset + count > view.byteLength) continue;
+
+              let value = "";
+              for (let j = 0; j < count; j++) {
+                const charCode = view.getUint8(valueOffset + j);
+                if (charCode === 0) break;
+                value += String.fromCharCode(charCode);
+              }
+              const parsed = parseExifDateString(value);
+              if (parsed) return parsed;
+            }
+            return null;
+          };
+
+          const ifd0Date = readDateFromIfd(ifd0Offset, [0x0132]);
+          if (ifd0Date) return ifd0Date;
+
           const entries = readUint16(ifd0Offset);
           let exifIfdOffset: number | null = null;
 
@@ -215,28 +251,8 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
 
           if (!exifIfdOffset) return null;
 
-          const exifEntries = readUint16(exifIfdOffset);
-          for (let i = 0; i < exifEntries; i++) {
-            const entryOffset = exifIfdOffset + 2 + i * 12;
-            const tag = readUint16(entryOffset);
-            if (tag !== 0x9003 && tag !== 0x9004 && tag !== 0x0132) continue;
-            const type = readUint16(entryOffset + 2);
-            const count = readUint32(entryOffset + 4);
-            if (type !== 2 || count === 0) continue;
-            let valueOffset = entryOffset + 8;
-            if (count > 4) {
-              valueOffset = tiffOffset + readUint32(entryOffset + 8);
-            }
-
-            let value = "";
-            for (let j = 0; j < count; j++) {
-              const charCode = view.getUint8(valueOffset + j);
-              if (charCode === 0) break;
-              value += String.fromCharCode(charCode);
-            }
-            const parsed = parseExifDateString(value);
-            if (parsed) return parsed;
-          }
+          const exifDate = readDateFromIfd(exifIfdOffset, [0x9003, 0x9004, 0x0132]);
+          if (exifDate) return exifDate;
           return null;
         }
 
@@ -250,10 +266,17 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
     return null;
   };
 
+  const getFileMetadataDate = (file: File) => {
+    if (!file.lastModified) return null;
+    const date = new Date(file.lastModified);
+    if (Number.isNaN(date.getTime())) return null;
+    return date;
+  };
+
   const maybeSetCaughtAtFromExif = async (files: File[]) => {
     if (files.length === 0) return;
     for (const file of files) {
-      const date = await readExifDate(file);
+      const date = (await readExifDate(file)) ?? getFileMetadataDate(file);
       if (date) {
         setCaughtAt(formatDateTimeLocal(date));
         return;
@@ -596,7 +619,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
                           >
                             <strong>{lure.brand} {lure.name}</strong>
                             <small>
-                              {lure.type} — {lure.size} — {lure.color}
+                              {lure.size} — {lure.color}
                               {lure.category ? ` — ${lure.category}` : ""}
                             </small>
                           </button>

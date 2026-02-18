@@ -1,7 +1,7 @@
 export interface LureOption {
   id: string;
   name: string;
-  type: string;
+  type?: string | null;
   brand: string;
   size: string;
   color: string;

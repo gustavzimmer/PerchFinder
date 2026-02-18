@@ -5,7 +5,7 @@ export type WaterStatsPayload = {
   totalCatches: number;
   general: {
     topLures: string[];
-    topLureTypes: string[];
+    topLureCategories: string[];
     topMethods: string[];
     topJigMethods: string[];
     bestTimeOfDay: string;
@@ -25,7 +25,7 @@ export type WaterStatsPayload = {
     comparedCatchCount: number;
     matchedCatchCount: number;
     topLures: string[];
-    topLureTypes: string[];
+    topLureCategories: string[];
     topMethods: string[];
     topJigMethods: string[];
     topTimesOfDay: string[];
