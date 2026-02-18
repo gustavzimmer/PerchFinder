@@ -1,9 +1,10 @@
 import { Component, createSignal } from "solid-js";
 import { FirebaseError } from "firebase/app";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { auth } from "../firebase";
 
 const RegisterUserPage: Component = () => {
+  const [username, setUsername] = createSignal("");
   const [email, setEmail] = createSignal("");
   const [password, setPassword] = createSignal("");
   const [confirmPassword, setConfirmPassword] = createSignal("");
@@ -27,13 +28,21 @@ const RegisterUserPage: Component = () => {
     return "Kunde inte skapa konto just nu.";
   };
 
+  const normalizeUsername = (value: string) => value.trim().replace(/\s+/g, " ");
+
   const handleSubmit = async (event: Event) => {
     event.preventDefault();
     setStatus(null);
     setError(null);
 
-    if (!email().trim() || !password() || !confirmPassword()) {
-      setError("Fyll i e-post och lösenord.");
+    const nextUsername = normalizeUsername(username());
+    if (!nextUsername || !email().trim() || !password() || !confirmPassword()) {
+      setError("Fyll i användarnamn, e-post och lösenord.");
+      return;
+    }
+
+    if (nextUsername.length < 3 || nextUsername.length > 24) {
+      setError("Användarnamn måste vara 3-24 tecken.");
       return;
     }
 
@@ -44,8 +53,19 @@ const RegisterUserPage: Component = () => {
 
     try {
       setIsSubmitting(true);
-      await createUserWithEmailAndPassword(auth, email().trim(), password());
-      setStatus("Konto skapat! Du kan nu logga in.");
+      const credential = await createUserWithEmailAndPassword(auth, email().trim(), password());
+      let couldSaveUserName = true;
+      try {
+        await updateProfile(credential.user, { displayName: nextUsername });
+      } catch (nameErr) {
+        console.warn("Kunde inte spara användarnamn vid registrering", nameErr);
+        couldSaveUserName = false;
+        setStatus("Konto skapat, men användarnamnet kunde inte sparas. Sätt det på profilsidan.");
+      }
+      if (couldSaveUserName) {
+        setStatus(`Konto skapat för ${nextUsername}!`);
+      }
+      setUsername("");
       setEmail("");
       setPassword("");
       setConfirmPassword("");
@@ -60,9 +80,23 @@ const RegisterUserPage: Component = () => {
   return (
     <main class="page auth-page">
       <h1>Skapa konto</h1>
-      <p class="auth-lead">Registrera dig med e-post och lösenord.</p>
+      <p class="auth-lead">Registrera dig med användarnamn, e-post och lösenord.</p>
 
       <form class="auth-form" onSubmit={handleSubmit}>
+        <label>
+          <span>Användarnamn</span>
+          <input
+            type="text"
+            placeholder="T.ex. Fiskemaster"
+            value={username()}
+            onInput={(e) => setUsername(e.currentTarget.value)}
+            autocomplete="username"
+            minLength={3}
+            maxLength={24}
+            required
+          />
+        </label>
+
         <label>
           <span>E-post</span>
           <input

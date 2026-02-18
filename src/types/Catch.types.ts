@@ -5,6 +5,8 @@ export interface LureOption {
   brand: string;
   size: string;
   color: string;
+  category?: string | null;
+  updatedAt?: unknown;
 }
 
 export interface Catch {
@@ -17,6 +19,7 @@ export interface Catch {
   photoUrl?: string | null;
   photoUrls?: string[] | null;
   lure?: LureOption | null;
+  method?: string | null;
   weatherCode: number | null;
   weatherSummary?: string | null;
   temperatureC: number | null;
@@ -25,6 +28,7 @@ export interface Catch {
   createdAt?: unknown;
   userId?: string | null;
   userEmail?: string | null;
+  userName?: string | null;
 }
 
 export type CatchInput = Omit<Catch, "id" | "createdAt">;

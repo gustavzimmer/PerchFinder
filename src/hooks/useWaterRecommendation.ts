@@ -3,11 +3,36 @@ import { createSignal } from "solid-js";
 export type WaterStatsPayload = {
   waterName: string;
   totalCatches: number;
-  commonLures: string[];
-  bestTimeOfDay: string;
-  avgTempC: number | null;
-  commonWeather: string | null;
-  avgPressureHpa: number | null;
+  general: {
+    topLures: string[];
+    topLureTypes: string[];
+    topMethods: string[];
+    topJigMethods: string[];
+    bestTimeOfDay: string;
+    avgTempC: number | null;
+    commonWeather: string | null;
+    avgPressureHpa: number | null;
+  };
+  currentConditions?: {
+    observedAtIso: string;
+    weatherSummary: string | null;
+    weatherCode: number | null;
+    temperatureC: number | null;
+    pressureHpa: number | null;
+    timeOfDay: string;
+  } | null;
+  similarWhenLikeNow?: {
+    comparedCatchCount: number;
+    matchedCatchCount: number;
+    topLures: string[];
+    topLureTypes: string[];
+    topMethods: string[];
+    topJigMethods: string[];
+    topTimesOfDay: string[];
+    commonWeather: string | null;
+    avgTempC: number | null;
+    avgPressureHpa: number | null;
+  } | null;
 };
 
 const useWaterRecommendation = () => {

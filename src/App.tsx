@@ -10,6 +10,7 @@ import WaterInfoPage from './pages/WaterInfoPage';
 import RegisterUserPage from './pages/RegisterUserPage';
 import LoginPage from './pages/LoginPage';
 import AdminWaterRequestsPage from './pages/AdminWaterRequestsPage';
+import ProfilePage from './pages/ProfilePage';
 import { MapUiProvider } from './context/MapUiContext';
 
 const Layout: Component<RouteSectionProps> = (props) => (
@@ -29,6 +30,7 @@ const App: Component = () => (
       <Route path="/registrera-fiskevatten" component={RegisterWaterPage} />
       <Route path="/admin/vattenforfragan" component={AdminWaterRequestsPage} />
       <Route path="/vatten/:id" component={WaterInfoPage} />
+      <Route path="/profil" component={ProfilePage} />
       <Route path="/skapa-konto" component={RegisterUserPage} />
       <Route path="/logga-in" component={LoginPage} />
     </Route>

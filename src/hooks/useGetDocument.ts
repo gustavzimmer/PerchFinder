@@ -44,16 +44,18 @@ const useGetDocument = <T>(
         _id: snapshot.id,
       } as T & { _id: string };
 
+      setError(null);
       setData(() => docData);
       setIsLoading(false);
     };
 
     const loadData = async () => {
+      let hasCacheResult = false;
       try {
         const cachedSnapshot = await getDocFromCache(docRef);
         if (!isActive) return;
         applySnapshot(cachedSnapshot);
-        return;
+        hasCacheResult = true;
       } catch {
         // No cache available, fall back to server.
       }
@@ -64,7 +66,9 @@ const useGetDocument = <T>(
         applySnapshot(serverSnapshot);
       } catch {
         if (!isActive) return;
-        setError("Kunde inte hämta dokument.");
+        if (!hasCacheResult) {
+          setError("Kunde inte hämta dokument.");
+        }
         setIsLoading(false);
       }
     };

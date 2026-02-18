@@ -1,10 +1,10 @@
-import { Component, For, Show, Setter, createMemo, createSignal, onCleanup } from "solid-js";
+import { Component, For, Show, Setter, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { addDoc, serverTimestamp } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { auth, catchCol, storage } from "../firebase";
 import { CatchInput, LureOption } from "../types/Catch.types";
-import { lures } from "../data/lures";
 import { geoLocation } from "../types/Map.types";
+import useGetLures from "../hooks/useGetLures";
 
 interface CatchFormModalProps {
   waterId: string | undefined;
@@ -14,27 +14,56 @@ interface CatchFormModalProps {
   onError: Setter<string | null>;
 }
 
+const toUserName = (displayName: string | null | undefined, email: string | null | undefined) => {
+  const trimmed = displayName?.trim();
+  if (trimmed) return trimmed;
+  if (!email) return null;
+  const [localPart] = email.split("@");
+  return localPart || email;
+};
+
+const SOFT_PLASTIC_METHODS = [
+  "Jigghuvud",
+  "Carolina rig",
+  "Texas rig",
+  "NED rig",
+  "Dropshot",
+];
+
+const isSoftPlasticLure = (lure: LureOption | null | undefined) => {
+  if (!lure) return false;
+  const type = lure.type.toLowerCase();
+  return /jigg|shad|gummi|soft|swimbait/.test(type);
+};
+
 const CatchFormModal: Component<CatchFormModalProps> = (props) => {
   const [weight, setWeight] = createSignal("");
   const [length, setLength] = createSignal("");
   const nowLocalInput = () => new Date().toISOString().slice(0, 16);
   const [caughtAt, setCaughtAt] = createSignal(nowLocalInput());
-  const [hasTouchedCaughtAt, setHasTouchedCaughtAt] = createSignal(false);
   const [notes, setNotes] = createSignal("");
   const [isSaving, setIsSaving] = createSignal(false);
   const [photoFiles, setPhotoFiles] = createSignal<File[]>([]);
   const [photoPreviews, setPhotoPreviews] = createSignal<string[]>([]);
   const [isProcessingPhoto, setIsProcessingPhoto] = createSignal(false);
   const [selectedLureId, setSelectedLureId] = createSignal<string>("");
+  const [selectedMethod, setSelectedMethod] = createSignal<string>("");
   const [lureQuery, setLureQuery] = createSignal("");
   const [formError, setFormError] = createSignal<string | null>(null);
+  const luresData = useGetLures();
+
+  const availableLures = createMemo(() => luresData.data() ?? []);
+  const selectedLure = createMemo(
+    () => availableLures().find((item) => item.id === selectedLureId()) ?? null
+  );
+  const shouldShowMethod = createMemo(() => isSoftPlasticLure(selectedLure()));
 
   /* Search for bait */
   const filteredLures = createMemo(() => {
     const q = lureQuery().toLowerCase().trim();
-    if (!q) return lures;
-    return lures.filter((lure) =>
-      [lure.name, lure.brand, lure.type, lure.size, lure.color].some((field) =>
+    if (!q) return availableLures();
+    return availableLures().filter((lure) =>
+      [lure.name, lure.brand, lure.type, lure.size, lure.color, lure.category ?? ""].some((field) =>
         field.toLowerCase().includes(q)
       )
     );
@@ -45,8 +74,15 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
     setLength("");
     setNotes("");
     setCaughtAt(nowLocalInput());
+    setSelectedMethod("");
     clearPhotos();
   };
+
+  createEffect(() => {
+    if (!shouldShowMethod()) {
+      setSelectedMethod("");
+    }
+  });
 
   const clearPhotos = () => {
     photoPreviews().forEach((src) => URL.revokeObjectURL(src));
@@ -215,7 +251,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
   };
 
   const maybeSetCaughtAtFromExif = async (files: File[]) => {
-    if (hasTouchedCaughtAt() || files.length === 0) return;
+    if (files.length === 0) return;
     for (const file of files) {
       const date = await readExifDate(file);
       if (date) {
@@ -409,11 +445,13 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
       notes: notes().trim() || null,
       caughtAt: caughtAtIso,
       lure: null as LureOption | null,
+      method: null,
       weatherCode: null,
       temperatureC: null,
       pressureHpa: null,
       userId: user.uid,
       userEmail: user.email ?? null,
+      userName: toUserName(user.displayName, user.email),
     };
 
     try {
@@ -431,10 +469,12 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
         payload.photoUrl = urls[0] ?? null;
       }
       if (selectedLureId()) {
-        
-        const foundLure = lures.find((item) => item.id === selectedLureId());
+        const foundLure = selectedLure();
         if (foundLure) {
           payload.lure = foundLure;
+          if (isSoftPlasticLure(foundLure) && selectedMethod().trim()) {
+            payload.method = selectedMethod().trim();
+          }
         }
       }
       if (props.waterLocation) {
@@ -475,7 +515,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
         <div class="catch-modal" onClick={(e) => e.stopPropagation()}>
           <header class="catch-modal__header">
             <h2>Registrera fångst</h2>
-            <button type="button" class="link-button" onClick={() => props.onClose()}>
+            <button type="button" class="danger-button" onClick={() => props.onClose()}>
               Stäng
             </button>
           </header>
@@ -508,10 +548,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
               <input
                 type="datetime-local"
                 value={caughtAt()}
-                onInput={(e) => {
-                  setCaughtAt(e.currentTarget.value);
-                  setHasTouchedCaughtAt(true);
-                }}
+                onInput={(e) => setCaughtAt(e.currentTarget.value)}
               />
             </label>
 
@@ -537,29 +574,54 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
                 <button
                   type="button"
                   class={`lure-option ${selectedLureId() === "" ? "is-selected" : ""}`}
-                  onClick={() => setSelectedLureId("")}
+                  onClick={() => {
+                    setSelectedLureId("");
+                    setSelectedMethod("");
+                  }}
                   aria-selected={selectedLureId() === ""}
                 >
                   Inget bete
                 </button>
-                <For each={filteredLures()}>
-                  {(lure) => {
-                    const isSelected = () => selectedLureId() === lure.id;
-                    return (
-                      <button
-                        type="button"
-                        class={`lure-option ${isSelected() ? "is-selected" : ""}`}
-                        onClick={() => setSelectedLureId(lure.id)}
-                        aria-selected={isSelected()}
-                      >
-                        <strong>{lure.brand} {lure.name}</strong>
-                        <small>{lure.type} — {lure.size} — {lure.color}</small>
-                      </button>
-                    );
-                  }}
-                </For>
+                <Show when={!luresData.isLoading()} fallback={<small>Laddar beten...</small>}>
+                  <Show when={filteredLures().length > 0} fallback={<small>Inga beten med full info hittades.</small>}>
+                    <For each={filteredLures()}>
+                      {(lure) => {
+                        const isSelected = () => selectedLureId() === lure.id;
+                        return (
+                          <button
+                            type="button"
+                            class={`lure-option ${isSelected() ? "is-selected" : ""}`}
+                            onClick={() => setSelectedLureId(lure.id)}
+                            aria-selected={isSelected()}
+                          >
+                            <strong>{lure.brand} {lure.name}</strong>
+                            <small>
+                              {lure.type} — {lure.size} — {lure.color}
+                              {lure.category ? ` — ${lure.category}` : ""}
+                            </small>
+                          </button>
+                        );
+                      }}
+                    </For>
+                  </Show>
+                </Show>
               </div>
             </label>
+
+            <Show when={shouldShowMethod()}>
+              <label>
+                <span>Metod</span>
+                <select
+                  value={selectedMethod()}
+                  onChange={(e) => setSelectedMethod(e.currentTarget.value)}
+                >
+                  <option value="">Välj metod (valfritt)</option>
+                  <For each={SOFT_PLASTIC_METHODS}>
+                    {(method) => <option value={method}>{method}</option>}
+                  </For>
+                </select>
+              </label>
+            </Show>
 
             <label>
               <span>Bild</span>
@@ -595,7 +657,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
             </Show>
 
             <div class="catch-form__actions">
-              <button type="button" onClick={() => props.onClose()}>
+              <button type="button" class="secondary-button" onClick={() => props.onClose()}>
                 Avbryt
               </button>
               <button type="submit" class="primary-button" disabled={isSaving() || isProcessingPhoto()}>

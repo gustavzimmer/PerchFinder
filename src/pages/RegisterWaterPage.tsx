@@ -3,6 +3,14 @@ import { addDoc, serverTimestamp } from "firebase/firestore";
 import { auth, waterRequestCol } from "../firebase";
 import { useMapUi } from "../context/MapUiContext";
 
+const toUserName = (displayName: string | null | undefined, email: string | null | undefined) => {
+  const trimmed = displayName?.trim();
+  if (trimmed) return trimmed;
+  if (!email) return null;
+  const [localPart] = email.split("@");
+  return localPart || email;
+};
+
 const RegisterWaterPage: Component = () => {
   const [name, setName] = createSignal("");
   const [error, setError] = createSignal<string | null>(null);
@@ -30,6 +38,7 @@ const RegisterWaterPage: Component = () => {
         requestedAt: serverTimestamp(),
         requestedBy: user?.uid ?? null,
         requestedByEmail: user?.email ?? null,
+        requestedByName: toUserName(user?.displayName, user?.email),
       });
       setStatus(`Förfrågan för "${name().trim()}" skickades!`);
       setName("");

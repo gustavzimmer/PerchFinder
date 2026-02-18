@@ -25,6 +25,7 @@ interface Props {
 const GoogleMap: Component<Props> = (props) => {
   const [waters, setWaters] = createSignal<WaterLocation[] | null>(null);
   const [error, setError] = createSignal<string | null>(null);
+  const [watersError, setWatersError] = createSignal<string | null>(null);
   const [isLoading, setIsLoading] = createSignal(true);
   const [query, setQuery] = createSignal("");
   const [searchError, setSearchError] = createSignal<string | null>(null);
@@ -53,6 +54,22 @@ const GoogleMap: Component<Props> = (props) => {
     if (fetchedWaters) {
       setWaters(fetchedWaters);
     }
+  });
+
+  createEffect(() => {
+    if (!watersData.error()) {
+      setWatersError(null);
+      return;
+    }
+    if (watersData.error() === "permission-denied") {
+      setWatersError(
+        "Firestore nekar läsning av vatten för denna användare. Sätt 'allow read: if true' på FiskeVatten."
+      );
+      return;
+    }
+    setWatersError(
+      "Kunde inte hämta vatten från Firebase. Kontrollera Firestore-regler (read för FiskeVatten)."
+    );
   });
 
   createEffect(() => {
@@ -255,9 +272,9 @@ const GoogleMap: Component<Props> = (props) => {
 
         {isLoading() && <div class="map-overlay">Laddar karta...</div>}
 
-        {error() && (
+        {(error() || watersError()) && (
           <div class="map-overlay">
-            <div class="map-error">{error()}</div>
+            <div class="map-error">{error() ?? watersError()}</div>
           </div>
         )}
       </div>

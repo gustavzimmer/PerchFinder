@@ -1,11 +1,13 @@
-
 import { Component, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import useGetCatches from "../hooks/useGetCatches";
 import useWaterRecommendation, { WaterStatsPayload } from "../hooks/useWaterRecommendation";
+import type { Catch } from "../types/Catch.types";
+import type { geoLocation } from "../types/Map.types";
 
 type Props = {
   waterId: string;
   waterName?: string;
+  waterLocation?: geoLocation;
 };
 
 type CachedRecommendation = {
@@ -72,6 +74,175 @@ const timeBucket = (iso: string) => {
   return "Natt";
 };
 
+const average = (values: number[]) => {
+  if (values.length === 0) return null;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+};
+
+const incrementCount = (map: Record<string, number>, key: string) => {
+  map[key] = (map[key] || 0) + 1;
+};
+
+const topLabels = (map: Record<string, number>, limit = 3) =>
+  Object.entries(map)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([label]) => label);
+
+const lureLabel = (item: Catch) => {
+  if (!item.lure) return null;
+  const parts = [item.lure.brand, item.lure.name, item.lure.color].filter(Boolean);
+  return parts.join(" ").trim() || "Okänt bete";
+};
+
+const lureTypeLabel = (item: Catch) => {
+  const type = item.lure?.type?.trim();
+  return type || null;
+};
+
+const normalizeMethod = (item: Catch) => {
+  const method = item.method?.trim();
+  return method ? method : null;
+};
+
+const isJigLure = (item: Catch) => {
+  const category = item.lure?.category?.toLowerCase() ?? "";
+  const type = item.lure?.type?.toLowerCase() ?? "";
+  return category.includes("jigg") || type.includes("jigg");
+};
+
+const fetchCurrentConditions = async (location: geoLocation) => {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${location.lat}&longitude=${location.lng}&current=temperature_2m,weather_code,surface_pressure&timezone=auto`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Current weather request failed");
+  const json = await res.json();
+  const current = json.current ?? json.current_weather;
+  if (!current) return null;
+
+  const weatherCode =
+    typeof current.weather_code === "number"
+      ? current.weather_code
+      : typeof current.weathercode === "number"
+        ? current.weathercode
+        : null;
+  const observedAtIso = typeof current.time === "string" ? current.time : new Date().toISOString();
+
+  return {
+    observedAtIso,
+    weatherSummary: mapWeatherCode(weatherCode),
+    weatherCode,
+    temperatureC:
+      typeof current.temperature_2m === "number"
+        ? current.temperature_2m
+        : typeof current.temperature === "number"
+          ? current.temperature
+          : null,
+    pressureHpa: typeof current.surface_pressure === "number" ? current.surface_pressure : null,
+    timeOfDay: timeBucket(observedAtIso),
+  };
+};
+
+const buildSimilarWhenLikeNow = (
+  list: Catch[],
+  currentConditions: NonNullable<WaterStatsPayload["currentConditions"]> | null
+): WaterStatsPayload["similarWhenLikeNow"] => {
+  if (!currentConditions) return null;
+
+  const comparable = list.filter(
+    (item) =>
+      item.temperatureC !== null ||
+      item.pressureHpa !== null ||
+      item.weatherCode !== null
+  );
+  if (comparable.length === 0) {
+    return {
+      comparedCatchCount: 0,
+      matchedCatchCount: 0,
+      topLures: [],
+      topLureTypes: [],
+      topMethods: [],
+      topJigMethods: [],
+      topTimesOfDay: [],
+      commonWeather: null,
+      avgTempC: null,
+      avgPressureHpa: null,
+    };
+  }
+
+  const scored = comparable.map((item) => {
+    const tempDelta =
+      currentConditions.temperatureC !== null && item.temperatureC !== null
+        ? Math.abs(item.temperatureC - currentConditions.temperatureC)
+        : 6;
+    const pressureDelta =
+      currentConditions.pressureHpa !== null && item.pressureHpa !== null
+        ? Math.abs(item.pressureHpa - currentConditions.pressureHpa)
+        : 16;
+    const weatherPenalty =
+      currentConditions.weatherCode !== null &&
+      item.weatherCode !== null &&
+      currentConditions.weatherCode !== item.weatherCode
+        ? 8
+        : 0;
+    const timePenalty = timeBucket(item.caughtAt) === currentConditions.timeOfDay ? 0 : 4;
+    const score = tempDelta + pressureDelta / 4 + weatherPenalty + timePenalty;
+    return { item, score };
+  });
+
+  const matched = scored
+    .sort((a, b) => a.score - b.score)
+    .slice(0, Math.min(12, Math.max(5, Math.ceil(comparable.length * 0.35))))
+    .map((entry) => entry.item);
+
+  const lureCount: Record<string, number> = {};
+  const lureTypeCount: Record<string, number> = {};
+  const methodCount: Record<string, number> = {};
+  const jigMethodCount: Record<string, number> = {};
+  const timeCount: Record<string, number> = {};
+  const weatherCount: Record<string, number> = {};
+  const temps: number[] = [];
+  const pressures: number[] = [];
+
+  matched.forEach((item) => {
+    const lure = lureLabel(item);
+    if (lure) incrementCount(lureCount, lure);
+    const lureType = lureTypeLabel(item);
+    if (lureType) incrementCount(lureTypeCount, lureType);
+
+    const method = normalizeMethod(item);
+    if (method) {
+      incrementCount(methodCount, method);
+      if (isJigLure(item)) {
+        incrementCount(jigMethodCount, method);
+      }
+    }
+
+    incrementCount(timeCount, timeBucket(item.caughtAt));
+
+    const weather = item.weatherSummary || mapWeatherCode(item.weatherCode);
+    if (weather) incrementCount(weatherCount, weather);
+
+    if (item.temperatureC !== null && item.temperatureC !== undefined) temps.push(item.temperatureC);
+    if (item.pressureHpa !== null && item.pressureHpa !== undefined) pressures.push(item.pressureHpa);
+  });
+
+  const avgTemp = average(temps);
+  const avgPressure = average(pressures);
+
+  return {
+    comparedCatchCount: comparable.length,
+    matchedCatchCount: matched.length,
+      topLures: topLabels(lureCount, 3),
+      topLureTypes: topLabels(lureTypeCount, 3),
+      topMethods: topLabels(methodCount, 3),
+      topJigMethods: topLabels(jigMethodCount, 3),
+      topTimesOfDay: topLabels(timeCount, 2),
+      commonWeather: topLabels(weatherCount, 1)[0] ?? null,
+      avgTempC: avgTemp === null ? null : Number(avgTemp.toFixed(1)),
+    avgPressureHpa: avgPressure === null ? null : Number(avgPressure.toFixed(0)),
+  };
+};
+
 const WaterRecommendationsComponent: Component<Props> = (props) => {
   const catches = useGetCatches(() => props.waterId ?? "");
   const [hasCachedRecommendation, setHasCachedRecommendation] = createSignal(false);
@@ -81,61 +252,63 @@ const WaterRecommendationsComponent: Component<Props> = (props) => {
     if (!list) return undefined;
     if (list.length === 0) return null;
 
-    const totalCatches = list.length;
-
-    const lureCount: Record<string, { label: string; count: number }> = {};
-    list.forEach((item) => {
-      if (item.lure) {
-        const key = item.lure.id || `${item.lure.brand}-${item.lure.name}`;
-        const label = `${item.lure.brand} ${item.lure.name} (${item.lure.color})`;
-        if (!lureCount[key]) lureCount[key] = { label, count: 0 };
-        lureCount[key].count += 1;
-      }
-    });
-    const commonLures = Object.values(lureCount)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 3)
-      .map((l) => l.label);
-
+    const lureCount: Record<string, number> = {};
+    const lureTypeCount: Record<string, number> = {};
+    const methodCount: Record<string, number> = {};
+    const jigMethodCount: Record<string, number> = {};
     const timeCount: Record<string, number> = {};
-    list.forEach((item) => {
-      const bucket = timeBucket(item.caughtAt);
-      timeCount[bucket] = (timeCount[bucket] || 0) + 1;
-    });
-    const bestTimeOfDay =
-      Object.entries(timeCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "okänt";
-
-    const temps = list.map((c) => c.temperatureC).filter((t): t is number => t !== null && t !== undefined);
-    const avgTempC = temps.length ? Number((temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1)) : null;
-
-    const pressures = list
-      .map((c) => c.pressureHpa)
-      .filter((p): p is number => p !== null && p !== undefined);
-    const avgPressureHpa = pressures.length
-      ? Number((pressures.reduce((a, b) => a + b, 0) / pressures.length).toFixed(0))
-      : null;
-
     const weatherCount: Record<string, number> = {};
+    const temps: number[] = [];
+    const pressures: number[] = [];
+
     list.forEach((item) => {
-      const label =
+      const lure = lureLabel(item);
+      if (lure) incrementCount(lureCount, lure);
+      const lureType = lureTypeLabel(item);
+      if (lureType) incrementCount(lureTypeCount, lureType);
+
+      const method = normalizeMethod(item);
+      if (method) {
+        incrementCount(methodCount, method);
+        if (isJigLure(item)) {
+          incrementCount(jigMethodCount, method);
+        }
+      }
+
+      incrementCount(timeCount, timeBucket(item.caughtAt));
+
+      const weather =
         item.weatherSummary ||
         mapWeatherCode(item.weatherCode) ||
         (item.weatherCode !== null && item.weatherCode !== undefined
           ? `Kod ${item.weatherCode}`
           : "Okänt");
-      weatherCount[label] = (weatherCount[label] || 0) + 1;
+      incrementCount(weatherCount, weather);
+
+      if (item.temperatureC !== null && item.temperatureC !== undefined) temps.push(item.temperatureC);
+      if (item.pressureHpa !== null && item.pressureHpa !== undefined) pressures.push(item.pressureHpa);
     });
-    const commonWeather =
-      Object.entries(weatherCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+    const avgTemp = average(temps);
+    const avgPressure = average(pressures);
+    const bestTimeOfDay = topLabels(timeCount, 1)[0] ?? "okänt";
+    const commonWeather = topLabels(weatherCount, 1)[0] ?? null;
 
     return {
       waterName: props.waterName || "Okänt vatten",
-      totalCatches,
-      commonLures,
-      bestTimeOfDay,
-      avgTempC,
-      commonWeather,
-      avgPressureHpa,
+      totalCatches: list.length,
+      general: {
+        topLures: topLabels(lureCount, 4),
+        topLureTypes: topLabels(lureTypeCount, 4),
+        topMethods: topLabels(methodCount, 4),
+        topJigMethods: topLabels(jigMethodCount, 4),
+        bestTimeOfDay,
+        avgTempC: avgTemp === null ? null : Number(avgTemp.toFixed(1)),
+        commonWeather,
+        avgPressureHpa: avgPressure === null ? null : Number(avgPressure.toFixed(0)),
+      },
+      currentConditions: null,
+      similarWhenLikeNow: null,
     };
   });
 
@@ -229,9 +402,9 @@ const WaterRecommendationsComponent: Component<Props> = (props) => {
       setHasCachedRecommendation(false);
       reset();
     };
-    window.addEventListener("perchfinder:catch-saved", handler as EventListener);
+    window.addEventListener("perchfinder:catch-saved", handler);
     onCleanup(() => {
-      window.removeEventListener("perchfinder:catch-saved", handler as EventListener);
+      window.removeEventListener("perchfinder:catch-saved", handler);
     });
   });
 
@@ -242,10 +415,26 @@ const WaterRecommendationsComponent: Component<Props> = (props) => {
 
   const handleRequestRecommendation = async () => {
     if (!canRequest()) return;
-    const currentStats = stats();
+    const baseStats = stats();
     const signature = statsSignature();
-    if (!currentStats || !signature) return;
-    const nextRecommendation = await fetchRecommendation(currentStats);
+    if (!baseStats || !signature) return;
+
+    let payload: WaterStatsPayload = baseStats;
+
+    if (props.waterLocation) {
+      try {
+        const currentConditions = await fetchCurrentConditions(props.waterLocation);
+        payload = {
+          ...baseStats,
+          currentConditions,
+          similarWhenLikeNow: buildSimilarWhenLikeNow(catches.data() ?? [], currentConditions),
+        };
+      } catch (err) {
+        console.warn("Kunde inte hämta aktuellt väder för rekommendation", err);
+      }
+    }
+
+    const nextRecommendation = await fetchRecommendation(payload);
     if (nextRecommendation === null) return;
     writeCachedRecommendation(signature, nextRecommendation);
     setHasCachedRecommendation(true);
@@ -266,14 +455,17 @@ const WaterRecommendationsComponent: Component<Props> = (props) => {
   return (
     <section class="ai-recommendation">
       <h2>Rekommendation</h2>
-      <Show when={catches.isLoading()} fallback={
-        <Show
-          when={stats()}
-          fallback={<div class="ai-reco-summary">Registrera en fångst för att få rekommendation.</div>}
-        >
-          <div class="ai-reco-summary">Baserat på {stats()!.totalCatches} fångster.</div>
-        </Show>
-      }>
+      <Show
+        when={catches.isLoading()}
+        fallback={
+          <Show
+            when={stats()}
+            fallback={<div class="ai-reco-summary">Registrera en fångst för att få rekommendation.</div>}
+          >
+            <div class="ai-reco-summary">Baserat på {stats()!.totalCatches} fångster.</div>
+          </Show>
+        }
+      >
         <div>Laddar fångster...</div>
       </Show>
 
@@ -289,9 +481,7 @@ const WaterRecommendationsComponent: Component<Props> = (props) => {
       </Show>
 
       {error() && <div class="form-status error">{error()}</div>}
-      <div class="ai-reco__box">
-        {recommendationText()}
-      </div>
+      <div class="ai-reco__box">{recommendationText()}</div>
     </section>
   );
 };

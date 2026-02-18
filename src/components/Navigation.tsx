@@ -1,7 +1,8 @@
 import { A, useNavigate } from "@solidjs/router";
-import { Component, createSignal, onCleanup, onMount } from "solid-js";
+import { Component, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
-import { auth } from "../firebase";
+import { onSnapshot, query } from "firebase/firestore";
+import { auth, waterRequestCol } from "../firebase";
 import LogoDark from "../assets/images/perchfinder_logo_dark.png";
 
 const Navigation: Component = () => {
@@ -9,6 +10,14 @@ const Navigation: Component = () => {
     const [currentUser, setCurrentUser] = createSignal<User | null>(auth.currentUser);
     const [isSigningOut, setIsSigningOut] = createSignal(false);
     const [isMenuOpen, setIsMenuOpen] = createSignal(false);
+    const [pendingRequestCount, setPendingRequestCount] = createSignal(0);
+    const toUserLabel = (displayName: string | null | undefined, email: string | null | undefined) => {
+        const name = displayName?.trim();
+        if (name) return name;
+        if (!email) return "Användare";
+        const [localPart] = email.split("@");
+        return localPart || email;
+    };
     const adminEmails = (import.meta.env.VITE_ADMIN_EMAILS ?? "")
         .split(",")
         .map((email: string) => email.trim().toLowerCase())
@@ -22,6 +31,27 @@ const Navigation: Component = () => {
         const unsub = onAuthStateChanged(auth, (user) => {
             setCurrentUser(user);
         });
+        onCleanup(() => unsub());
+    });
+
+    createEffect(() => {
+        if (!isAdmin()) {
+            setPendingRequestCount(0);
+            return;
+        }
+
+        const requestsQuery = query(waterRequestCol);
+        const unsub = onSnapshot(
+            requestsQuery,
+            (snapshot) => {
+                setPendingRequestCount(snapshot.size);
+            },
+            (err) => {
+                console.error("Kunde inte hämta admin-förfrågningar", err);
+                setPendingRequestCount(0);
+            }
+        );
+
         onCleanup(() => unsub());
     });
 
@@ -59,15 +89,23 @@ const Navigation: Component = () => {
                 <div class={`nav-links-group ${isMenuOpen() ? "is-open" : ""}`}>
                     <div class="nav-links">
                         <A href="/registrera-fiskevatten" onClick={() => setIsMenuOpen(false)}>Registrera vatten</A>
+                        {currentUser() && (
+                            <A href="/profil" onClick={() => setIsMenuOpen(false)}>Min profil</A>
+                        )}
                         {isAdmin() && (
                             <A href="/admin/vattenforfragan" onClick={() => setIsMenuOpen(false)}>
                                 Admin: Godkänn vatten
+                                <Show when={pendingRequestCount() > 0}>
+                                    <span class="nav-badge">{pendingRequestCount()}</span>
+                                </Show>
                             </A>
                         )}
                     </div>
                     {currentUser() ? (
                         <div class="nav-links nav-auth">
-                            <span class="nav-user">{currentUser()?.email}</span>
+                            <span class="nav-user">
+                                {toUserLabel(currentUser()?.displayName, currentUser()?.email)}
+                            </span>
                             <button
                                 type="button"
                                 class="nav-button"

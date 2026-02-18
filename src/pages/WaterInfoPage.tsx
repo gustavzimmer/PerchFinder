@@ -70,6 +70,7 @@ const WaterInfoPage: Component = () => {
       <WaterRecommendationsComponent
         waterId={waterId() ?? ""}
         waterName={waterData.data()?.name ?? ""}
+        waterLocation={waterData.data()?.location}
       />
       
       <WaterCatchesComponent />

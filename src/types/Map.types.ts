@@ -16,6 +16,14 @@ export interface WaterLocation {
     location: geoLocation
     createdAt?: string
     name: string
+    requestedAt?: unknown
+    requestedBy?: string | null
+    requestedByEmail?: string | null
+    requestedByName?: string | null
+    approvedAt?: unknown
+    approvedBy?: string | null
+    approvedByEmail?: string | null
+    approvedByName?: string | null
     catchCount?: number
     detailPath?: string
 }
@@ -27,4 +35,5 @@ export interface WaterRequest {
     requestedAt?: unknown
     requestedBy?: string | null
     requestedByEmail?: string | null
+    requestedByName?: string | null
 }

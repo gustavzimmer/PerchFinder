@@ -5,6 +5,14 @@ import { auth, catchCol } from "../firebase";
 import { deleteDoc, doc } from "firebase/firestore";
 import { onAuthStateChanged, type User } from "firebase/auth";
 
+const toUserLabel = (name: string | null | undefined, email: string | null | undefined) => {
+  const trimmed = name?.trim();
+  if (trimmed) return trimmed;
+  if (!email) return "Anonym";
+  const [localPart] = email.split("@");
+  return localPart || email;
+};
+
 const WaterCatchesComponent = () => {
   const params = useParams();
   const waterId = () => params.id;
@@ -130,10 +138,19 @@ const WaterCatchesComponent = () => {
                       <div class="catch-time">
                         {new Date(item.caughtAt).toLocaleString("sv-SE")}
                       </div>
+                      <div class="catch-time">
+                        Fångad av: {toUserLabel(item.userName, item.userEmail)}
+                      </div>
 
                       <div>
                         <h3>Bete</h3>
                         <p>{item.lure ? `${item.lure.brand} ${item.lure.name} ${item.lure.size} ${item.lure.type} ${item.lure.color}` : "Inget bete tillagt"}</p>
+                        <Show when={item.lure?.category}>
+                          <p>Kategori: {item.lure?.category}</p>
+                        </Show>
+                        <Show when={item.method}>
+                          <p>Metod: {item.method}</p>
+                        </Show>
                       </div>
 
                       {item.notes && (
@@ -151,7 +168,7 @@ const WaterCatchesComponent = () => {
                       <Show when={currentUser() && item.userId === currentUser()?.uid && item._id}>
                         <button
                           type="button"
-                          class="link-button"
+                          class="danger-button"
                           onClick={() => handleDelete(item._id!)}
                           disabled={deletingId() === item._id}
                         >

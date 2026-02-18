@@ -12,6 +12,13 @@ const LoginPage: Component = () => {
   const [error, setError] = createSignal<string | null>(null);
   const [isSubmitting, setIsSubmitting] = createSignal(false);
   let redirectTimer: number | null = null;
+  const toUserLabel = (displayName: string | null | undefined, email: string | null | undefined) => {
+    const name = displayName?.trim();
+    if (name) return name;
+    if (!email) return "användare";
+    const [localPart] = email.split("@");
+    return localPart || email;
+  };
 
   const toFriendlyMessage = (err: unknown) => {
     if (err instanceof FirebaseError) {
@@ -44,8 +51,8 @@ const LoginPage: Component = () => {
     try {
       setIsSubmitting(true);
       const credential = await signInWithEmailAndPassword(auth, email().trim(), password());
-      const userEmail = credential.user.email ?? "användare";
-      setStatus(`Inloggad som ${userEmail}. Omdirigerar...`);
+      const userLabel = toUserLabel(credential.user.displayName, credential.user.email);
+      setStatus(`Inloggad som ${userLabel}. Omdirigerar...`);
       setPassword("");
       if (redirectTimer) clearTimeout(redirectTimer);
       redirectTimer = window.setTimeout(() => navigate("/"), 1200);

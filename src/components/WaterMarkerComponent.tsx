@@ -27,6 +27,36 @@ const WaterMarkerComponent: Component<Props> = (props) => {
   let infoWindow: InfoWindowInstance | null = null;
   let runId = 0;
 
+  const toMarkerPosition = (location: WaterLocation["location"]) => {
+    if (!location || typeof location !== "object") return null;
+
+    const latLng = location as unknown as {
+      lat?: number | (() => number);
+      lng?: number | (() => number);
+      latitude?: number;
+      longitude?: number;
+    };
+
+    const readNumber = (value: unknown) => {
+      if (typeof value === "number") return value;
+      if (typeof value === "function") {
+        try {
+          const next = value();
+          return typeof next === "number" ? next : null;
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    };
+
+    const lat = readNumber(latLng.lat) ?? latLng.latitude ?? null;
+    const lng = readNumber(latLng.lng) ?? latLng.longitude ?? null;
+    if (typeof lat !== "number" || typeof lng !== "number") return null;
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+    return { lat, lng };
+  };
+
   /* Kolla så google är initierat rätt */
   const ensureMapsLib = async (): Promise<MapsLib | null> => {
     if (mapsLib) return mapsLib;
@@ -50,8 +80,6 @@ const WaterMarkerComponent: Component<Props> = (props) => {
 
   /* Info window content */
   const waterInfoWindow = (water: WaterLocation) => {
-    console.log(water);
-    
     const container = document.createElement("div");
     container.className = "water-info-window";
 
@@ -97,7 +125,11 @@ const WaterMarkerComponent: Component<Props> = (props) => {
 
       const { AdvancedMarkerElement } = lib;
 
-      markers = list.map((water) => {
+      const nextMarkers: MarkerEntry[] = [];
+      for (const water of list) {
+        const position = toMarkerPosition(water.location);
+        if (!position) continue;
+
         const markerEl = document.createElement("div");
         markerEl.className = "water-marker";
 
@@ -110,7 +142,7 @@ const WaterMarkerComponent: Component<Props> = (props) => {
 
         const marker = new AdvancedMarkerElement({
           map: currentMap,
-          position: water.location,
+          position,
           title: water.name,
           content: markerEl,
         });
@@ -123,8 +155,9 @@ const WaterMarkerComponent: Component<Props> = (props) => {
           infoWindow.open({ map: currentMap, anchor: marker });
         });
 
-        return { marker, listener };
-      });
+        nextMarkers.push({ marker, listener });
+      }
+      markers = nextMarkers;
     })();
   });
 

@@ -4,13 +4,14 @@ import {
   collection,
   CollectionReference,
   initializeFirestore,
+  memoryLocalCache,
   persistentLocalCache,
   persistentMultipleTabManager,
   type DocumentData,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { WaterLocation, WaterRequest } from "./types/Map.types";
-import { Catch } from "./types/Catch.types";
+import { Catch, LureOption } from "./types/Catch.types";
 
 // Config from env file
 const firebaseConfig = {
@@ -25,11 +26,22 @@ const firebaseConfig = {
 // initialize app
 const app = initializeApp(firebaseConfig);
 
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager(),
-  }),
-});
+const createFirestore = () => {
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch (err) {
+    console.warn("Persistent cache stöds inte här, använder minnescache istället.", err);
+    return initializeFirestore(app, {
+      localCache: memoryLocalCache(),
+    });
+  }
+};
+
+export const db = createFirestore();
 
 export const storage = getStorage(app);
 
@@ -42,3 +54,4 @@ const createCollection = <T = DocumentData>(collectionName: string) => {
 export const waterCol = createCollection<WaterLocation>("FiskeVatten");
 export const waterRequestCol = createCollection<WaterRequest>("FiskeVattenRequests");
 export const catchCol = createCollection<Catch>("Fangster");
+export const lureCol = createCollection<LureOption>("Lures");
