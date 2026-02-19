@@ -22,6 +22,13 @@ const toUserName = (displayName: string | null | undefined, email: string | null
   return localPart || email;
 };
 
+const formatDateTimeLocal = (date: Date) => {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
+};
+
 const SOFT_PLASTIC_METHODS = [
   "Jigghuvud",
   "Carolina rig",
@@ -40,7 +47,7 @@ const isSoftPlasticLure = (lure: LureOption | null | undefined) => {
 const CatchFormModal: Component<CatchFormModalProps> = (props) => {
   const [weight, setWeight] = createSignal("");
   const [length, setLength] = createSignal("");
-  const nowLocalInput = () => new Date().toISOString().slice(0, 16);
+  const nowLocalInput = () => formatDateTimeLocal(new Date());
   const [caughtAt, setCaughtAt] = createSignal(nowLocalInput());
   const [notes, setNotes] = createSignal("");
   const [isSaving, setIsSaving] = createSignal(false);
@@ -161,13 +168,6 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
     );
     if (Number.isNaN(date.getTime())) return null;
     return date;
-  };
-
-  const formatDateTimeLocal = (date: Date) => {
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-      date.getHours()
-    )}:${pad(date.getMinutes())}`;
   };
 
   const readExifDate = async (file: File) => {
@@ -392,13 +392,38 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
     }
   };
 
-  const fetchWeather = async (loc: geoLocation) => {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lng}&current=temperature_2m,weather_code,surface_pressure&timezone=auto`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error("Weather request failed");
-    const json = await res.json();
-    const current = json.current ?? json.current_weather;
-    if (!current) {
+  const parseHourlyTimeUtc = (value: string) => {
+    const parsed = Date.parse(value.endsWith("Z") ? value : `${value}Z`);
+    return Number.isNaN(parsed) ? null : parsed;
+  };
+
+  const pickNearestIndex = (times: string[], targetMs: number) => {
+    let nearest = -1;
+    let bestDiff = Number.POSITIVE_INFINITY;
+
+    for (let i = 0; i < times.length; i++) {
+      const timeMs = parseHourlyTimeUtc(times[i]);
+      if (timeMs === null) continue;
+      const diff = Math.abs(timeMs - targetMs);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        nearest = i;
+      }
+    }
+
+    return nearest >= 0 ? nearest : null;
+  };
+
+  const toWeatherPayload = (hourly: unknown, targetMs: number) => {
+    const data = hourly as {
+      time?: string[];
+      weather_code?: Array<number | null>;
+      temperature_2m?: Array<number | null>;
+      surface_pressure?: Array<number | null>;
+    };
+    const times = Array.isArray(data.time) ? data.time : [];
+    const index = pickNearestIndex(times, targetMs);
+    if (index === null) {
       return {
         weatherCode: null,
         weatherSummary: null,
@@ -407,22 +432,53 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
       };
     }
 
+    const weatherCode =
+      Array.isArray(data.weather_code) && typeof data.weather_code[index] === "number"
+        ? (data.weather_code[index] as number)
+        : null;
+    const temperatureC =
+      Array.isArray(data.temperature_2m) && typeof data.temperature_2m[index] === "number"
+        ? (data.temperature_2m[index] as number)
+        : null;
+    const pressureHpa =
+      Array.isArray(data.surface_pressure) && typeof data.surface_pressure[index] === "number"
+        ? (data.surface_pressure[index] as number)
+        : null;
+
     return {
-      weatherCode:
-        typeof current.weather_code === "number"
-          ? current.weather_code
-          : typeof current.weathercode === "number"
-            ? current.weathercode
-            : null,
-      weatherSummary: mapWeatherCode(current.weather_code ?? current.weathercode),
-      temperatureC:
-        typeof current.temperature_2m === "number"
-          ? current.temperature_2m
-          : typeof current.temperature === "number"
-            ? current.temperature
-            : null,
-      pressureHpa: typeof current.surface_pressure === "number" ? current.surface_pressure : null,
+      weatherCode,
+      weatherSummary: mapWeatherCode(weatherCode),
+      temperatureC,
+      pressureHpa,
     };
+  };
+
+  const fetchWeatherForCatchTime = async (loc: geoLocation, caughtAtIso: string) => {
+    const caughtAtDate = new Date(caughtAtIso);
+    const caughtAtMs = caughtAtDate.getTime();
+    if (Number.isNaN(caughtAtMs)) {
+      return {
+        weatherCode: null,
+        weatherSummary: null,
+        temperatureC: null,
+        pressureHpa: null,
+      };
+    }
+
+    const dateKey = caughtAtDate.toISOString().slice(0, 10);
+    const isPastOrNow = caughtAtMs <= Date.now();
+    const baseUrl = isPastOrNow
+      ? "https://archive-api.open-meteo.com/v1/archive"
+      : "https://api.open-meteo.com/v1/forecast";
+    const url =
+      `${baseUrl}?latitude=${loc.lat}&longitude=${loc.lng}` +
+      `&hourly=temperature_2m,weather_code,surface_pressure` +
+      `&start_date=${dateKey}&end_date=${dateKey}&timezone=UTC`;
+
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Weather request failed");
+    const json = await res.json();
+    return toWeatherPayload(json?.hourly, caughtAtMs);
   };
 
   const handleSubmit = async (e: Event) => {
@@ -473,7 +529,6 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
       temperatureC: null,
       pressureHpa: null,
       userId: user.uid,
-      userEmail: user.email ?? null,
       userName: toUserName(user.displayName, user.email),
     };
 
@@ -502,7 +557,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
       }
       if (props.waterLocation) {
         try {
-          const weather = await fetchWeather(props.waterLocation);
+          const weather = await fetchWeatherForCatchTime(props.waterLocation, caughtAtIso);
           payload.weatherCode = weather.weatherCode;
           payload.weatherSummary = weather.weatherSummary;
           payload.temperatureC = weather.temperatureC;

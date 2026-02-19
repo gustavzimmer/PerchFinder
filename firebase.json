@@ -10,8 +10,14 @@
       "ignore": [
         "node_modules",
         ".git",
+        ".DS_Store",
         "firebase-debug.log",
         "firebase-debug.*.log",
+        "src",
+        "tsconfig.json",
+        "tsconfig.dev.json",
+        ".eslintrc.js",
+        "lib/**/*.map",
         "*.local"
       ],
       "predeploy": [

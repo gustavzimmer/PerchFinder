@@ -46,6 +46,18 @@ service cloud.firestore {
       return value == null || (value is list && value.size() <= maxItems);
     }
 
+    function validCommentText(text) {
+      return text is string && text.size() > 0 && text.size() <= 280;
+    }
+
+    function catchRef(catchId) {
+      return /databases/$(database)/documents/Fangster/$(catchId);
+    }
+
+    function catchExists(catchId) {
+      return exists(catchRef(catchId));
+    }
+
     match /Admins/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
       allow write: if isAdmin();
@@ -65,26 +77,13 @@ service cloud.firestore {
         request.resource.data.friends is list &&
         request.resource.data.friends.size() == 0;
 
-      allow update: if signedIn() && (
-        (
-          request.auth.uid == uid &&
-          validSocialProfile(uid, request.resource.data) &&
-          request.resource.data.createdAt == resource.data.createdAt
-        ) ||
-        (
-          request.auth.uid != uid &&
-          validSocialProfile(uid, request.resource.data) &&
-          request.resource.data.createdAt == resource.data.createdAt &&
-          request.resource.data.displayName == resource.data.displayName &&
-          request.resource.data.displayNameLower == resource.data.displayNameLower &&
-          request.resource.data.photoURL == resource.data.photoURL &&
-          request.resource.data.friends is list &&
-          resource.data.friends is list &&
-          request.resource.data.friends.size() == resource.data.friends.size() + 1 &&
-          request.resource.data.friends.hasAll(resource.data.friends) &&
-          request.resource.data.friends.hasAny([request.auth.uid])
-        )
-      );
+      allow update: if signedIn() &&
+        request.auth.uid == uid &&
+        validSocialProfile(uid, request.resource.data) &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.friends is list &&
+        resource.data.friends is list &&
+        request.resource.data.friends == resource.data.friends;
 
       allow delete: if false;
     }
@@ -159,7 +158,6 @@ service cloud.firestore {
           "caughtAt",
           "createdAt",
           "userId",
-          "userEmail",
           "userName"
         ]) &&
         request.resource.data.waterId is string &&
@@ -169,10 +167,6 @@ service cloud.firestore {
         request.resource.data.caughtAt.size() >= 16 &&
         request.resource.data.caughtAt.size() <= 40 &&
         request.resource.data.userId == request.auth.uid &&
-        (
-          request.resource.data.userEmail == null ||
-          request.resource.data.userEmail == request.auth.token.email
-        ) &&
         optionalShortString(request.resource.data.userName, 24) &&
         optionalNumberInRange(request.resource.data.weightG, 0, 30000) &&
         optionalNumberInRange(request.resource.data.lengthCm, 0, 200) &&
@@ -191,6 +185,59 @@ service cloud.firestore {
         (resource.data.userId == request.auth.uid || isAdmin());
 
       allow update: if false;
+
+      match /Likes/{uid} {
+        allow read: if true;
+
+        allow create: if signedIn() &&
+          catchExists(catchId) &&
+          request.auth.uid == uid &&
+          request.resource.data.keys().hasOnly([
+            "uid",
+            "userName",
+            "createdAtMs",
+            "createdAt"
+          ]) &&
+          request.resource.data.uid == request.auth.uid &&
+          optionalShortString(request.resource.data.userName, 24) &&
+          request.resource.data.createdAtMs is int &&
+          request.resource.data.createdAt != null;
+
+        allow delete: if signedIn() &&
+          (request.auth.uid == uid || isAdmin());
+
+        allow update: if false;
+      }
+
+      match /Comments/{commentId} {
+        allow read: if true;
+
+        allow create: if signedIn() &&
+          catchExists(catchId) &&
+          request.resource.data.keys().hasOnly([
+            "uid",
+            "userName",
+            "text",
+            "createdAtMs",
+            "createdAt"
+          ]) &&
+          request.resource.data.uid == request.auth.uid &&
+          optionalShortString(request.resource.data.userName, 24) &&
+          validCommentText(request.resource.data.text) &&
+          request.resource.data.createdAtMs is int &&
+          request.resource.data.createdAt != null;
+
+        allow delete: if signedIn() && (
+          resource.data.uid == request.auth.uid ||
+          isAdmin() ||
+          (
+            catchExists(catchId) &&
+            get(catchRef(catchId)).data.userId == request.auth.uid
+          )
+        );
+
+        allow update: if false;
+      }
     }
 
     match /FiskeVatten/{waterId} {

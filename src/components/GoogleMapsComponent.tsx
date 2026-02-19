@@ -13,6 +13,16 @@ const ApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 const MapId = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID;
 let hasConfiguredLoader = false;
 
+const LocateIcon: Component = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="12" cy="12" r="5" fill="none" />
+    <path d="M12 2v3" fill="none" />
+    <path d="M12 19v3" fill="none" />
+    <path d="M2 12h3" fill="none" />
+    <path d="M19 12h3" fill="none" />
+  </svg>
+);
+
 interface Props {
   userLocation?: geoLocation | null;
   selectionMode?: boolean;
@@ -43,6 +53,7 @@ const GoogleMap: Component<Props> = (props) => {
   const [markerLib, setMarkerLib] = createSignal<MarkerLib | null>(null);
   type AdvancedMarker = InstanceType<MarkerLib["AdvancedMarkerElement"]>;
   let selectionMarker: AdvancedMarker | null = null;
+  let userLocationMarker: AdvancedMarker | null = null;
   let hasInitialized = false;
 
   const effectiveUserLocation = createMemo(() => props.userLocation ?? internalUserLocation());
@@ -116,6 +127,8 @@ const GoogleMap: Component<Props> = (props) => {
         streetViewControl: false,
         fullscreenControl: false,
         mapTypeControl: false,
+        cameraControl: false,
+        clickableIcons: false,
         mapId: MapId,
         gestureHandling: "greedy",
       });
@@ -220,6 +233,39 @@ const GoogleMap: Component<Props> = (props) => {
   });
 
   createEffect(() => {
+    const currentMap = mapRef();
+    const currentMarkerLib = markerLib();
+    const loc = effectiveUserLocation();
+
+    if (!currentMap || !currentMarkerLib) return;
+
+    if (!loc) {
+      if (userLocationMarker) {
+        userLocationMarker.map = null;
+        userLocationMarker = null;
+      }
+      return;
+    }
+
+    if (!userLocationMarker) {
+      const { AdvancedMarkerElement } = currentMarkerLib;
+      const markerContent = document.createElement("div");
+      markerContent.className = "map-user-marker";
+
+      userLocationMarker = new AdvancedMarkerElement({
+        map: currentMap,
+        position: loc,
+        title: "Din position",
+        content: markerContent,
+      });
+      return;
+    }
+
+    userLocationMarker.position = loc;
+    userLocationMarker.map = currentMap;
+  });
+
+  createEffect(() => {
     if (!isVisible()) return;
     const currentMap = mapRef();
     if (!currentMap) return;
@@ -247,11 +293,42 @@ const GoogleMap: Component<Props> = (props) => {
     });
   };
 
+  const centerToUserLocation = () => {
+    const currentMap = mapRef();
+    if (!currentMap) return;
+
+    const knownLocation = effectiveUserLocation();
+    if (knownLocation) {
+      currentMap.setCenter(knownLocation);
+      currentMap.setZoom(13);
+      setSearchError(null);
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      setSearchError("Din enhet saknar stöd för platsdelning.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setInternalUserLocation(loc);
+        currentMap.setCenter(loc);
+        currentMap.setZoom(13);
+        setSearchError(null);
+      },
+      () => {
+        setSearchError("Kunde inte hämta din position.");
+      }
+    );
+  };
+
   return (
     <section class={`map-shell ${isVisible() ? "" : "is-hidden"}`}>
         {/* Searchbar */}
       {shouldShowSearch() && (
-        <>
+        <div class="map-search-wrap">
           <form class="map-search" onSubmit={searchAndCenter}>
             <input
               type="search"
@@ -263,12 +340,20 @@ const GoogleMap: Component<Props> = (props) => {
             <button type="submit">Sök</button>
           </form>
           {searchError() && <div class="map-search__error">{searchError()}</div>}
-        </>
+        </div>
       )}
 
       <div class="map-frame">
         <WaterMarkerComponent map={mapRef} markerLib={markerLib} waters={waters} />
         <div ref={mapContainer} class="map-canvas" />
+        <button
+          type="button"
+          class="map-locate-btn"
+          onClick={centerToUserLocation}
+          aria-label="Centrera på min position"
+        >
+          <LocateIcon />
+        </button>
 
         {isLoading() && <div class="map-overlay">Laddar karta...</div>}
 

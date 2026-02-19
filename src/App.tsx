@@ -1,7 +1,7 @@
 import './App.scss';
 
 import { Component, Suspense, lazy } from 'solid-js';
-import { Route, Router, type RouteSectionProps } from '@solidjs/router';
+import { Route, Router, useLocation, type RouteSectionProps } from '@solidjs/router';
 import Navigation from './components/Navigation';
 import PersistentMap from './components/PersistentMap';
 import { MapUiProvider } from './context/MapUiContext';
@@ -15,17 +15,22 @@ const AdminWaterRequestsPage = lazy(() => import('./pages/AdminWaterRequestsPage
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const DailyChallengePage = lazy(() => import('./pages/DailyChallengePage'));
 
-const Layout: Component<RouteSectionProps> = (props) => (
-  <MapUiProvider>
-    <div id="app">
-      <Navigation />
-      <Suspense fallback={<main class="page"><div>Laddar sida...</div></main>}>
-        {props.children}
-      </Suspense>
-      <PersistentMap />
-    </div>
-  </MapUiProvider>
-);
+const Layout: Component<RouteSectionProps> = (props) => {
+  const location = useLocation();
+  const isHomeRoute = () => location.pathname === "/";
+
+  return (
+    <MapUiProvider>
+      <div id="app" class={`app-shell ${isHomeRoute() ? "route-home" : ""}`}>
+        <Navigation />
+        <Suspense fallback={<main class="page"><div>Laddar sida...</div></main>}>
+          {props.children}
+        </Suspense>
+        <PersistentMap />
+      </div>
+    </MapUiProvider>
+  );
+};
 
 const App: Component = () => (
   <Router>
@@ -35,7 +40,7 @@ const App: Component = () => (
       <Route path="/admin/vattenforfragan" component={AdminWaterRequestsPage} />
       <Route path="/vatten/:id" component={WaterInfoPage} />
       <Route path="/profil" component={ProfilePage} />
-      <Route path="/daglig-tavling" component={DailyChallengePage} />
+      <Route path="/perchbuddy" component={DailyChallengePage} />
       <Route path="/skapa-konto" component={RegisterUserPage} />
       <Route path="/logga-in" component={LoginPage} />
     </Route>

@@ -16,8 +16,14 @@ const useGetCollection = <T> (
     const [data, setData] = createSignal<(T & { _id: string })[] | null>(null);
     const [isLoading, setIsLoading] = createSignal(true);
     const [error, setError] = createSignal<string | null>(null);
+    const [refreshToken, setRefreshToken] = createSignal(0);
+
+    const refetch = () => {
+        setRefreshToken((value) => value + 1);
+    };
 
     createEffect(() => {
+        refreshToken();
         let isActive = true;
         const queryRef = query(colRef, ...queryConstraints);
 
@@ -77,6 +83,7 @@ const useGetCollection = <T> (
         data,
         isLoading,
         error,
+        refetch,
     }
 }
 

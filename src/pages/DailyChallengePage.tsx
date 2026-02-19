@@ -1,9 +1,8 @@
 import { Component, For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { onAuthStateChanged, type User } from "firebase/auth";
+import { httpsCallable } from "firebase/functions";
 import {
   addDoc,
-  arrayUnion,
-  deleteDoc,
   doc,
   endAt,
   getDoc,
@@ -13,11 +12,10 @@ import {
   query,
   serverTimestamp,
   startAt,
-  updateDoc,
   where,
   limit,
 } from "firebase/firestore";
-import { auth, dailyCatchEventCol, friendRequestCol, socialProfileCol } from "../firebase";
+import { auth, dailyCatchEventCol, friendRequestCol, functions, socialProfileCol } from "../firebase";
 import type { DailyBucket, DailyCatchEvent, FriendRequest, SocialProfile } from "../types/Social.types";
 import { useMapUi } from "../context/MapUiContext";
 import { ensureSocialProfileClaimed } from "../utils/socialProfile";
@@ -29,9 +27,9 @@ const WEEK_MS = 7 * DAY_MS;
 const BUCKETS: { key: DailyBucket; label: string; points: number }[] = [
   { key: "30", label: "30 cm", points: 1 },
   { key: "35", label: "35 cm", points: 2 },
-  { key: "40", label: "40 cm", points: 3 },
-  { key: "45", label: "45 cm", points: 4 },
-  { key: "50+", label: "50+ cm", points: 6 },
+  { key: "40", label: "40 cm", points: 4 },
+  { key: "45", label: "45 cm", points: 6 },
+  { key: "50+", label: "50+ cm", points: 10 },
 ];
 
 const LEVELS = [
@@ -123,6 +121,11 @@ const buildLeaderboard = (events: DailyCatchEvent[], allowed: Set<string>): Lead
   });
 };
 
+const respondToFriendRequestCall = httpsCallable<
+  { requestId: string; approve: boolean },
+  { ok: boolean }
+>(functions, "respondToFriendRequest");
+
 const DailyChallengePage: Component = () => {
   const { setMode, setSelectedLocation } = useMapUi();
   const [currentUser, setCurrentUser] = createSignal<User | null>(auth.currentUser);
@@ -136,6 +139,7 @@ const DailyChallengePage: Component = () => {
   const [isSavingCatch, setIsSavingCatch] = createSignal(false);
   const [isSendingFriendRequest, setIsSendingFriendRequest] = createSignal<string | null>(null);
   const [friendSearch, setFriendSearch] = createSignal("");
+  const [isFriendsOpen, setIsFriendsOpen] = createSignal(false);
   const [status, setStatus] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [nowMs, setNowMs] = createSignal(Date.now());
@@ -402,19 +406,10 @@ const DailyChallengePage: Component = () => {
     if (!user) return;
 
     try {
-      if (approve) {
-        await Promise.all([
-          updateDoc(doc(socialProfileCol, user.uid), {
-            friends: arrayUnion(request.fromUid),
-            updatedAt: serverTimestamp(),
-          }),
-          updateDoc(doc(socialProfileCol, request.fromUid), {
-            friends: arrayUnion(user.uid),
-            updatedAt: serverTimestamp(),
-          }),
-        ]);
-      }
-      await deleteDoc(doc(friendRequestCol, request._id));
+      await respondToFriendRequestCall({
+        requestId: request._id,
+        approve,
+      });
       if (approve) setStatus(`Du och ${request.fromDisplayName} är nu vänner.`);
     } catch (err) {
       console.error("Kunde inte hantera vänförfrågan", err);
@@ -470,110 +465,136 @@ const DailyChallengePage: Component = () => {
           <div class="form-status success">{status()}</div>
         </Show>
 
-        <section class="daily-card">
-          <h2>Vänner</h2>
-          <input
-            type="search"
-            class="daily-friend-search"
-            value={friendSearch()}
-            onInput={(e) => setFriendSearch(e.currentTarget.value)}
-            placeholder="Sök användarnamn"
-          />
+        <section class={`daily-card daily-friends-card ${isFriendsOpen() ? "is-open" : "is-closed"}`}>
+          <div class={`daily-card-header ${isFriendsOpen() ? "" : "is-icon-only"}`}>
+            <Show when={isFriendsOpen()}>
+              <h2>Vänner</h2>
+            </Show>
+            <button
+              type="button"
+              class={`daily-friends-toggle ${isFriendsOpen() ? "is-open" : ""}`}
+              aria-label={isFriendsOpen() ? "Dölj vänner" : "Visa vänner"}
+              aria-expanded={isFriendsOpen()}
+              onClick={() => setIsFriendsOpen((open) => !open)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="9" cy="8.8" r="2.4" fill="none" />
+                <circle cx="15.2" cy="9.6" r="2.1" fill="none" />
+                <path d="M4.5 17c0-2.5 2-4.4 4.5-4.4s4.5 1.9 4.5 4.4" fill="none" />
+                <path d="M12.2 17c0-2 1.6-3.6 3.5-3.6 2 0 3.6 1.6 3.6 3.6" fill="none" />
+              </svg>
+            </button>
+          </div>
 
-          <Show when={friendSearch().trim().length >= 2}>
-            <Show when={!isSearchingProfiles()} fallback={<div class="muted">Söker...</div>}>
-              <Show when={searchResults().length > 0} fallback={<div class="muted">Inga träffar.</div>}>
+          <Show when={isFriendsOpen()}>
+            <div class="daily-friends-panel">
+              <input
+                type="search"
+                class="daily-friend-search"
+                value={friendSearch()}
+                onInput={(e) => setFriendSearch(e.currentTarget.value)}
+                placeholder="Sök användarnamn"
+              />
+
+              <Show when={friendSearch().trim().length >= 2}>
+                <Show when={!isSearchingProfiles()} fallback={<div class="muted">Söker...</div>}>
+                  <Show when={searchResults().length > 0} fallback={<div class="muted">Inga träffar.</div>}>
+                    <ul class="daily-list">
+                      <For each={searchResults()}>
+                        {(candidate) => (
+                          <li class="daily-list-item">
+                            <span>{candidate.displayName}</span>
+                            <button
+                              type="button"
+                              class="primary-button"
+                              onClick={() => void sendFriendRequest(candidate)}
+                              disabled={isSendingFriendRequest() === candidate.uid}
+                            >
+                              {isSendingFriendRequest() === candidate.uid ? "Skickar..." : "Lägg till"}
+                            </button>
+                          </li>
+                        )}
+                      </For>
+                    </ul>
+                  </Show>
+                </Show>
+              </Show>
+
+              <Show when={incomingRequests().length > 0}>
+                <h3>Inkommande förfrågningar</h3>
                 <ul class="daily-list">
-                  <For each={searchResults()}>
-                    {(candidate) => (
+                  <For each={incomingRequests()}>
+                    {(request) => (
                       <li class="daily-list-item">
-                        <span>{candidate.displayName}</span>
-                        <button
-                          type="button"
-                          class="primary-button"
-                          onClick={() => void sendFriendRequest(candidate)}
-                          disabled={isSendingFriendRequest() === candidate.uid}
-                        >
-                          {isSendingFriendRequest() === candidate.uid ? "Skickar..." : "Lägg till"}
-                        </button>
+                        <span>{request.fromDisplayName}</span>
+                        <div class="card-actions">
+                          <button
+                            type="button"
+                            class="primary-button"
+                            onClick={() => void respondToRequest(request, true)}
+                          >
+                            Acceptera
+                          </button>
+                          <button
+                            type="button"
+                            class="danger-button"
+                            onClick={() => void respondToRequest(request, false)}
+                          >
+                            Avvisa
+                          </button>
+                        </div>
                       </li>
                     )}
                   </For>
                 </ul>
               </Show>
-            </Show>
-          </Show>
 
-          <Show when={incomingRequests().length > 0}>
-            <h3>Inkommande förfrågningar</h3>
-            <ul class="daily-list">
-              <For each={incomingRequests()}>
-                {(request) => (
-                  <li class="daily-list-item">
-                    <span>{request.fromDisplayName}</span>
-                    <div class="card-actions">
-                      <button
-                        type="button"
-                        class="primary-button"
-                        onClick={() => void respondToRequest(request, true)}
-                      >
-                        Acceptera
-                      </button>
-                      <button
-                        type="button"
-                        class="danger-button"
-                        onClick={() => void respondToRequest(request, false)}
-                      >
-                        Avvisa
-                      </button>
-                    </div>
-                  </li>
-                )}
-              </For>
-            </ul>
-          </Show>
-
-          <Show when={friendProfiles().length > 0} fallback={<div>Inga vänner ännu.</div>}>
-            <h3>Dina vänner</h3>
-            <ul class="daily-friends">
-              <For each={friendProfiles()}>
-                {(friend) => (
-                  <li class="daily-friend-chip">
-                    <span>{friend.displayName}</span>
-                  </li>
-                )}
-              </For>
-            </ul>
+              <Show when={friendProfiles().length > 0} fallback={<div>Inga vänner ännu.</div>}>
+                <h3>Dina vänner</h3>
+                <ul class="daily-friends">
+                  <For each={friendProfiles()}>
+                    {(friend) => (
+                      <li class="daily-friend-chip">
+                        <span>{friend.displayName}</span>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </Show>
+            </div>
           </Show>
         </section>
 
         <section class="daily-card">
-          <h2>Fångstfönster</h2>
-          <p class="muted">Tryck + eller - per längdklass. Varje ändring lever i 24 timmar.</p>
+          <h2>Fångster</h2>
           <ul class="daily-catch-window">
             <For each={BUCKETS}>
               {(bucket) => (
                 <li class="daily-catch-row">
-                  <span class="daily-catch-label">{bucket.label}</span>
-                  <div class="daily-catch-controls">
-                    <button
-                      type="button"
-                      class="secondary-button"
-                      onClick={() => void adjustCatch(bucket.key, -1)}
-                      disabled={isSavingCatch()}
-                    >
-                      -
-                    </button>
-                    <strong>{myCounts()[bucket.key]}</strong>
-                    <button
-                      type="button"
-                      class="primary-button"
-                      onClick={() => void adjustCatch(bucket.key, 1)}
-                      disabled={isSavingCatch()}
-                    >
-                      +
-                    </button>
+                  <button
+                    type="button"
+                    class="daily-catch-btn daily-catch-btn--minus secondary-button"
+                    onClick={() => void adjustCatch(bucket.key, -1)}
+                    disabled={isSavingCatch()}
+                    aria-label={`Minska ${bucket.label}`}
+                  >
+                    -
+                  </button>
+
+                  <div class="daily-catch-info">
+                    <span class="daily-catch-label">{bucket.label}</span>
+                    <strong class="daily-catch-count">{myCounts()[bucket.key]} st</strong>
                   </div>
+
+                  <button
+                    type="button"
+                    class="daily-catch-btn daily-catch-btn--plus primary-button"
+                    onClick={() => void adjustCatch(bucket.key, 1)}
+                    disabled={isSavingCatch()}
+                    aria-label={`Öka ${bucket.label}`}
+                  >
+                    +
+                  </button>
                 </li>
               )}
             </For>
@@ -601,7 +622,7 @@ const DailyChallengePage: Component = () => {
         </section>
 
         <section class="daily-card">
-          <h2>Veckotopplista (7 dagar)</h2>
+          <h2>Veckotopplista</h2>
           <Show when={weeklyLeaderboard().length > 0} fallback={<div>Ingen aktivitet senaste 7 dagarna.</div>}>
             <ol class="daily-leaderboard">
               <For each={weeklyLeaderboard()}>
