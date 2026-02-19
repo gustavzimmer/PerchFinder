@@ -14,12 +14,10 @@ interface CatchFormModalProps {
   onError: Setter<string | null>;
 }
 
-const toUserName = (displayName: string | null | undefined, email: string | null | undefined) => {
+const toUserName = (displayName: string | null | undefined) => {
   const trimmed = displayName?.trim();
   if (trimmed) return trimmed;
-  if (!email) return null;
-  const [localPart] = email.split("@");
-  return localPart || email;
+  return null;
 };
 
 const formatDateTimeLocal = (date: Date) => {
@@ -43,6 +41,13 @@ const isSoftPlasticLure = (lure: LureOption | null | undefined) => {
   const legacyType = (lure.type ?? "").toLowerCase();
   return /jigg|shad|gummi|soft|swimbait/.test(category) || /jigg|shad|gummi|soft|swimbait/.test(legacyType);
 };
+
+const CloseIcon: Component = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M7 7l10 10" />
+    <path d="M17 7 7 17" />
+  </svg>
+);
 
 const CatchFormModal: Component<CatchFormModalProps> = (props) => {
   const [weight, setWeight] = createSignal("");
@@ -143,11 +148,16 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
   };
 
   const uploadPhoto = async (file: File, waterId: string) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) {
+      throw new Error("Du måste vara inloggad för att ladda upp bilder.");
+    }
+
     const ext = file.name.split(".").pop() || "jpg";
     const safeExt = ext.replace(/[^a-zA-Z0-9]/g, "") || "jpg";
     const storageRef = ref(
       storage,
-      `catch-photos/${waterId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${safeExt}`
+      `catch-photos/${waterId}/${uid}/${Date.now()}-${Math.random().toString(36).slice(2)}.${safeExt}`
     );
     await uploadBytes(storageRef, file, { contentType: file.type });
     return getDownloadURL(storageRef);
@@ -497,6 +507,11 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
       setFormError("Du måste vara inloggad för att registrera en fångst.");
       return;
     }
+    const userName = toUserName(user.displayName);
+    if (!userName) {
+      setFormError("Saknar användarnamn. Uppdatera din profil innan du registrerar fångst.");
+      return;
+    }
 
     if (!weight().trim() && !length().trim()) {
       setFormError("Ange minst vikt eller längd för fångsten.");
@@ -529,7 +544,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
       temperatureC: null,
       pressureHpa: null,
       userId: user.uid,
-      userName: toUserName(user.displayName, user.email),
+      userName,
     };
 
     try {
@@ -726,7 +741,7 @@ const CatchFormModal: Component<CatchFormModalProps> = (props) => {
                         onClick={() => removePhoto(index())}
                         aria-label="Ta bort bild"
                       >
-                        x
+                        <CloseIcon />
                       </button>
                     </div>
                   )}

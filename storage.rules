@@ -1,0 +1,45 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function verifiedUser() {
+      return signedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return verifiedUser() && request.auth.uid == userId;
+    }
+
+    match /profile-photos/{userId}/{fileName} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) &&
+        request.resource != null &&
+        request.resource.contentType.matches('image/.*') &&
+        request.resource.size < 5 * 1024 * 1024;
+      allow delete: if isOwner(userId);
+    }
+
+    match /catch-photos/{waterId}/{userId}/{fileName} {
+      allow read: if true;
+      allow create, update: if isOwner(userId) &&
+        request.resource != null &&
+        request.resource.contentType.matches('image/.*') &&
+        request.resource.size < 10 * 1024 * 1024;
+      allow delete: if isOwner(userId);
+    }
+
+    // Legacy path support for already uploaded images.
+    match /catch-photos/{waterId}/{fileName} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

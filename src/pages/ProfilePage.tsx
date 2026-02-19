@@ -1,6 +1,14 @@
 import { A } from "@solidjs/router";
 import { FirebaseError } from "firebase/app";
-import { onAuthStateChanged, updateProfile, type User } from "firebase/auth";
+import {
+  EmailAuthProvider,
+  onAuthStateChanged,
+  reauthenticateWithCredential,
+  sendEmailVerification,
+  updatePassword,
+  updateProfile,
+  type User,
+} from "firebase/auth";
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { Component, For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { auth, storage } from "../firebase";
@@ -8,6 +16,11 @@ import useGetUserCatches from "../hooks/useGetUserCatches";
 import useGetWaters from "../hooks/useGetWaters";
 import { ensureSocialProfile } from "../utils/socialProfile";
 import { claimUniqueUsername, isUsernameTakenError, normalizeUsername } from "../utils/username";
+import {
+  PASSWORD_MIN_LENGTH,
+  evaluatePasswordPolicy,
+  isPasswordPolicySatisfied,
+} from "../utils/passwordPolicy";
 
 const toUserLabel = (name: string | null | undefined, email: string | null | undefined) => {
   const trimmed = name?.trim();
@@ -16,6 +29,18 @@ const toUserLabel = (name: string | null | undefined, email: string | null | und
   const [localPart] = email.split("@");
   return localPart || email;
 };
+
+const ChevronLeftIcon: Component = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="m14.5 6.5-5 5.5 5 5.5" />
+  </svg>
+);
+
+const ChevronRightIcon: Component = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="m9.5 6.5 5 5.5-5 5.5" />
+  </svg>
+);
 
 const ProfilePage: Component = () => {
   const [currentUser, setCurrentUser] = createSignal<User | null>(auth.currentUser, {
@@ -32,6 +57,21 @@ const ProfilePage: Component = () => {
   const [isSavingDisplayName, setIsSavingDisplayName] = createSignal(false);
   const [displayNameError, setDisplayNameError] = createSignal<string | null>(null);
   const [displayNameStatus, setDisplayNameStatus] = createSignal<string | null>(null);
+  const [isSendingVerificationEmail, setIsSendingVerificationEmail] = createSignal(false);
+  const [verificationEmailError, setVerificationEmailError] = createSignal<string | null>(null);
+  const [verificationEmailStatus, setVerificationEmailStatus] = createSignal<string | null>(null);
+  const [currentPassword, setCurrentPassword] = createSignal("");
+  const [newPassword, setNewPassword] = createSignal("");
+  const [confirmNewPassword, setConfirmNewPassword] = createSignal("");
+  const [isChangingPassword, setIsChangingPassword] = createSignal(false);
+  const [changePasswordError, setChangePasswordError] = createSignal<string | null>(null);
+  const [changePasswordStatus, setChangePasswordStatus] = createSignal<string | null>(null);
+  const normalizedDisplayName = () => normalizeUsername(displayNameInput());
+  const displayNameHasValue = () => normalizedDisplayName().length > 0;
+  const displayNameIsValid = () =>
+    normalizedDisplayName().length >= 3 && normalizedDisplayName().length <= 24;
+  const newPasswordPolicy = () => evaluatePasswordPolicy(newPassword());
+  const newPasswordHasValue = () => newPassword().length > 0;
 
   const userCatches = useGetUserCatches(() => currentUser()?.uid ?? null);
   const waters = useGetWaters();
@@ -197,7 +237,7 @@ const ProfilePage: Component = () => {
       return;
     }
 
-    const nextName = normalizeUsername(displayNameInput());
+    const nextName = normalizedDisplayName();
     if (nextName.length < 3 || nextName.length > 24) {
       setDisplayNameError("Användarnamn måste vara 3-24 tecken.");
       return;
@@ -238,6 +278,99 @@ const ProfilePage: Component = () => {
       setDisplayNameError("Kunde inte spara användarnamn just nu.");
     } finally {
       setIsSavingDisplayName(false);
+    }
+  };
+
+  const resendVerificationEmail = async () => {
+    setVerificationEmailError(null);
+    setVerificationEmailStatus(null);
+    const user = auth.currentUser;
+    if (!user) {
+      setVerificationEmailError("Du måste vara inloggad.");
+      return;
+    }
+    if (user.emailVerified) {
+      setVerificationEmailStatus("Din e-post är redan verifierad.");
+      return;
+    }
+
+    setIsSendingVerificationEmail(true);
+    try {
+      await sendEmailVerification(user, {
+        url: `${window.location.origin}/logga-in`,
+      });
+      setVerificationEmailStatus("Verifieringsmail skickat. Kontrollera inkorgen.");
+    } catch (err) {
+      console.error("Kunde inte skicka verifieringsmail", err);
+      setVerificationEmailError("Kunde inte skicka verifieringsmail just nu.");
+    } finally {
+      setIsSendingVerificationEmail(false);
+    }
+  };
+
+  const handleChangePassword = async (event: Event) => {
+    event.preventDefault();
+    setChangePasswordError(null);
+    setChangePasswordStatus(null);
+
+    const user = auth.currentUser;
+    if (!user || !user.email) {
+      setChangePasswordError("Du måste vara inloggad med e-post/lösenord.");
+      return;
+    }
+
+    if (!currentPassword() || !newPassword() || !confirmNewPassword()) {
+      setChangePasswordError("Fyll i alla lösenordsfält.");
+      return;
+    }
+
+    if (!isPasswordPolicySatisfied(newPassword())) {
+      setChangePasswordError(
+        `Nytt lösenord måste vara minst ${PASSWORD_MIN_LENGTH} tecken och innehålla stor bokstav + siffra.`
+      );
+      return;
+    }
+
+    if (newPassword() !== confirmNewPassword()) {
+      setChangePasswordError("Nya lösenorden matchar inte.");
+      return;
+    }
+
+    if (currentPassword() === newPassword()) {
+      setChangePasswordError("Nytt lösenord måste skilja sig från nuvarande.");
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      const credential = EmailAuthProvider.credential(user.email, currentPassword());
+      await reauthenticateWithCredential(user, credential);
+      await updatePassword(user, newPassword());
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+      setChangePasswordStatus("Lösenord uppdaterat.");
+    } catch (err) {
+      if (err instanceof FirebaseError) {
+        switch (err.code) {
+          case "auth/wrong-password":
+          case "auth/invalid-credential":
+            setChangePasswordError("Nuvarande lösenord är fel.");
+            return;
+          case "auth/weak-password":
+            setChangePasswordError("Nytt lösenord är för svagt.");
+            return;
+          case "auth/too-many-requests":
+            setChangePasswordError("För många försök. Vänta en stund och försök igen.");
+            return;
+          default:
+            break;
+        }
+      }
+      console.error("Kunde inte uppdatera lösenord", err);
+      setChangePasswordError("Kunde inte uppdatera lösenord just nu.");
+    } finally {
+      setIsChangingPassword(false);
     }
   };
 
@@ -297,6 +430,21 @@ const ProfilePage: Component = () => {
             <strong>{toUserLabel(currentUser()?.displayName, currentUser()?.email)}</strong>
           </div>
           <div class="muted">{currentUser()?.email}</div>
+          <div class="profile-email-verify-row">
+            <span class={`profile-verify-pill ${currentUser()?.emailVerified ? "is-verified" : "is-unverified"}`}>
+              {currentUser()?.emailVerified ? "E-post verifierad" : "E-post ej verifierad"}
+            </span>
+            <Show when={!currentUser()?.emailVerified}>
+              <button
+                type="button"
+                class="secondary-button profile-verify-button"
+                onClick={() => void resendVerificationEmail()}
+                disabled={isSendingVerificationEmail()}
+              >
+                {isSendingVerificationEmail() ? "Skickar..." : "Skicka verifieringsmail"}
+              </button>
+            </Show>
+          </div>
           <div class="muted">Din användarprofil och dina fångster.</div>
           <form class="profile-name-form" onSubmit={saveDisplayName}>
             <label>
@@ -311,6 +459,13 @@ const ProfilePage: Component = () => {
                 required
                 disabled={isSavingDisplayName()}
               />
+              <div
+                class={`field-validation ${
+                  displayNameHasValue() ? (displayNameIsValid() ? "is-valid" : "is-invalid") : ""
+                }`}
+              >
+                Minst 3 tecken
+              </div>
             </label>
             <button type="submit" class="primary-button" disabled={isSavingDisplayName()}>
               {isSavingDisplayName() ? "Sparar..." : "Spara användarnamn"}
@@ -327,6 +482,71 @@ const ProfilePage: Component = () => {
           </Show>
           <Show when={avatarError()}>
             <div class="form-status error">{avatarError()}</div>
+          </Show>
+          <Show when={verificationEmailStatus()}>
+            <div class="form-status success">{verificationEmailStatus()}</div>
+          </Show>
+          <Show when={verificationEmailError()}>
+            <div class="form-status error">{verificationEmailError()}</div>
+          </Show>
+
+          <form class="profile-password-form" onSubmit={handleChangePassword}>
+            <h3>Byt lösenord</h3>
+            <label>
+              <span>Nuvarande lösenord</span>
+              <input
+                type="password"
+                value={currentPassword()}
+                onInput={(e) => setCurrentPassword(e.currentTarget.value)}
+                autocomplete="current-password"
+                required
+                disabled={isChangingPassword()}
+              />
+            </label>
+            <label>
+              <span>Nytt lösenord</span>
+              <input
+                type="password"
+                value={newPassword()}
+                onInput={(e) => setNewPassword(e.currentTarget.value)}
+                autocomplete="new-password"
+                minLength={PASSWORD_MIN_LENGTH}
+                required
+                disabled={isChangingPassword()}
+              />
+              <ul class={`password-checklist ${newPasswordHasValue() ? "is-visible" : ""}`}>
+                <li class={`password-checklist__item ${newPasswordPolicy().minLength ? "is-valid" : ""}`}>
+                  Minst 8 tecken
+                </li>
+                <li class={`password-checklist__item ${newPasswordPolicy().hasUppercase ? "is-valid" : ""}`}>
+                  Minst en stor bokstav
+                </li>
+                <li class={`password-checklist__item ${newPasswordPolicy().hasDigit ? "is-valid" : ""}`}>
+                  Minst en siffra
+                </li>
+              </ul>
+            </label>
+            <label>
+              <span>Bekräfta nytt lösenord</span>
+              <input
+                type="password"
+                value={confirmNewPassword()}
+                onInput={(e) => setConfirmNewPassword(e.currentTarget.value)}
+                autocomplete="new-password"
+                minLength={PASSWORD_MIN_LENGTH}
+                required
+                disabled={isChangingPassword()}
+              />
+            </label>
+            <button type="submit" class="primary-button" disabled={isChangingPassword()}>
+              {isChangingPassword() ? "Sparar..." : "Uppdatera lösenord"}
+            </button>
+          </form>
+          <Show when={changePasswordStatus()}>
+            <div class="form-status success">{changePasswordStatus()}</div>
+          </Show>
+          <Show when={changePasswordError()}>
+            <div class="form-status error">{changePasswordError()}</div>
           </Show>
         </section>
 
@@ -438,7 +658,7 @@ const ProfilePage: Component = () => {
                                   onClick={goPrev}
                                   aria-label="Föregående bild"
                                 >
-                                  {"<"}
+                                  <ChevronLeftIcon />
                                 </button>
                                 <button
                                   type="button"
@@ -446,7 +666,7 @@ const ProfilePage: Component = () => {
                                   onClick={goNext}
                                   aria-label="Nästa bild"
                                 >
-                                  {">"}
+                                  <ChevronRightIcon />
                                 </button>
                                 <div class="slider-dots" role="tablist" aria-label="Bildval">
                                   <For each={photos()}>

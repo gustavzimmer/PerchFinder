@@ -1,6 +1,7 @@
 import { A, useLocation, useNavigate } from "@solidjs/router";
 import { Component, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
+import { FirebaseError } from "firebase/app";
 import { doc, onSnapshot, query } from "firebase/firestore";
 import { adminsCol, auth, waterRequestCol } from "../firebase";
 import LogoDark from "../assets/images/perchfinder_logo_dark.png";
@@ -38,6 +39,11 @@ const Navigation: Component = () => {
         const [localPart] = email.split("@");
         return localPart || email;
     };
+
+    const isMapRoute = () => location.pathname === "/";
+    const isPerchBuddyRoute = () => location.pathname.startsWith("/perchbuddy");
+    const isMoreRoute = () => !isMapRoute() && !isPerchBuddyRoute();
+
     onMount(() => {
         const unsub = onAuthStateChanged(auth, (user) => {
             setCurrentUser(user);
@@ -59,6 +65,10 @@ const Navigation: Component = () => {
                 setIsAdminUser(snap.exists());
             },
             (err) => {
+                if (err instanceof FirebaseError && err.code === "permission-denied") {
+                    setIsAdminUser(false);
+                    return;
+                }
                 console.error("Kunde inte läsa admin-status", err);
                 setIsAdminUser(false);
             }
@@ -169,14 +179,16 @@ const Navigation: Component = () => {
                     <span class="mobile-nav__icon">
                         <PinIcon />
                     </span>
+                    <span class="mobile-nav__active-dot" aria-hidden="true" />
                 </A>
                 <Show
                     when={currentUser()}
                     fallback={
                         <A href="/logga-in" class="mobile-nav__item" aria-label="Logga in">
                             <span class="mobile-nav__icon">
-                                <img src={LogoDark} alt="" />
+                                <img src={LogoLight} alt="" class="mobile-nav__logo--perchbuddy" />
                             </span>
+                            <span class="mobile-nav__active-dot" aria-hidden="true" />
                         </A>
                     }
                 >
@@ -184,13 +196,14 @@ const Navigation: Component = () => {
                         <span class="mobile-nav__icon">
                             <img src={LogoLight} alt="" class="mobile-nav__logo--perchbuddy" />
                         </span>
+                        <span class="mobile-nav__active-dot" aria-hidden="true" />
                     </A>
                 </Show>
 
-                <div class={`mobile-nav__more ${isMobileMoreOpen() ? "is-open" : ""}`}>
+                <div class={`mobile-nav__more ${isMobileMoreOpen() ? "is-open" : ""} ${isMoreRoute() ? "is-route-active" : ""}`}>
                     <button
                         type="button"
-                        class="mobile-nav__item mobile-nav__button"
+                        class={`mobile-nav__item mobile-nav__button ${isMoreRoute() ? "active" : ""}`}
                         aria-expanded={isMobileMoreOpen()}
                         aria-label="Visa fler val"
                         onClick={() => setIsMobileMoreOpen((open) => !open)}
@@ -198,6 +211,7 @@ const Navigation: Component = () => {
                         <span class="mobile-nav__icon">
                             <HamburgerIcon />
                         </span>
+                        <span class="mobile-nav__active-dot" aria-hidden="true" />
                     </button>
                     <div class="mobile-nav__menu">
                         <A href="/registrera-fiskevatten" onClick={() => setIsMobileMoreOpen(false)}>

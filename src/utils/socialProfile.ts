@@ -43,11 +43,36 @@ export const ensureSocialProfile = async (user: User, preferredDisplayName?: str
 
 export const ensureSocialProfileClaimed = async (user: User, preferredDisplayName?: string) => {
   const displayName = toDisplayName(preferredDisplayName ?? user.displayName, user.email, user.uid);
-  await claimUniqueUsername({
-    uid: user.uid,
-    nextDisplayName: displayName,
-    previousDisplayName: user.displayName,
-  });
+  const displayNameLower = toUsernameKey(displayName);
+  const profileRef = doc(socialProfileCol, user.uid);
+  const profileSnap = await getDoc(profileRef);
+  const currentProfile = profileSnap.exists()
+    ? (profileSnap.data() as { displayName?: unknown; displayNameLower?: unknown })
+    : null;
+  const currentDisplayName = typeof currentProfile?.displayName === "string" ? currentProfile.displayName : null;
+  const currentDisplayNameLower =
+    typeof currentProfile?.displayNameLower === "string" ? currentProfile.displayNameLower : null;
+
+  const shouldClaim =
+    !currentDisplayName ||
+    !currentDisplayNameLower ||
+    currentDisplayName !== displayName ||
+    currentDisplayNameLower !== displayNameLower;
+
+  if (shouldClaim) {
+    let idToken: string | null = null;
+    try {
+      idToken = await user.getIdToken();
+    } catch (err) {
+      console.warn("Kunde inte hämta idToken inför username-claim", err);
+    }
+    await claimUniqueUsername({
+      uid: user.uid,
+      nextDisplayName: displayName,
+      previousDisplayName: currentDisplayName ?? user.displayName,
+      idToken,
+    });
+  }
   await ensureSocialProfile(user, displayName);
   return displayName;
 };

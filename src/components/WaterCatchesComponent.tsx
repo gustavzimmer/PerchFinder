@@ -35,6 +35,11 @@ const toUserLabel = (name: string | null | undefined, email: string | null | und
   return localPart || email;
 };
 
+const toPersistedUserName = (displayName: string | null | undefined) => {
+  const trimmed = displayName?.trim();
+  return trimmed && trimmed.length >= 3 && trimmed.length <= 24 ? trimmed : null;
+};
+
 const formatCatchTime = (value: string) => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
@@ -63,6 +68,38 @@ type CatchComment = {
   createdAtMs: number;
 };
 
+const HeartIcon: Component = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M12 20.4 4.9 13.8a4.8 4.8 0 0 1 0-6.9 4.9 4.9 0 0 1 7 0l.1.2.1-.2a4.9 4.9 0 0 1 7 0 4.8 4.8 0 0 1 0 6.9Z" />
+  </svg>
+);
+
+const CommentIcon: Component = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 6.8c0-1 .8-1.8 1.8-1.8h12.4c1 0 1.8.8 1.8 1.8v8.4c0 1-.8 1.8-1.8 1.8H10l-4.4 3v-3H5.8c-1 0-1.8-.8-1.8-1.8Z" />
+  </svg>
+);
+
+const SendIcon: Component = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="m21 3-9.6 18-1.7-6.8L3 12.5z" />
+  </svg>
+);
+
+const ChevronLeftIcon: Component = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="m14.5 6.5-5 5.5 5 5.5" />
+  </svg>
+);
+
+const ChevronRightIcon: Component = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="m9.5 6.5 5 5.5-5 5.5" />
+  </svg>
+);
+
+const LOADING_PLACEHOLDERS = [1, 2, 3];
+
 const CatchFeedItem: Component<{
   catchItem: CatchItem;
   currentUser: Accessor<User | null>;
@@ -73,6 +110,7 @@ const CatchFeedItem: Component<{
   const [comments, setComments] = createSignal<CatchComment[]>([]);
   const [commentText, setCommentText] = createSignal("");
   const [isCommentsOpen, setIsCommentsOpen] = createSignal(false);
+  const [isComposerOpen, setIsComposerOpen] = createSignal(false);
   const [isSavingComment, setIsSavingComment] = createSignal(false);
   const [isTogglingLike, setIsTogglingLike] = createSignal(false);
   const [actionError, setActionError] = createSignal<string | null>(null);
@@ -177,6 +215,11 @@ const CatchFeedItem: Component<{
       setActionError("Logga in för att kunna gilla.");
       return;
     }
+    const persistedUserName = toPersistedUserName(user.displayName);
+    if (!persistedUserName) {
+      setActionError("Saknar användarnamn. Uppdatera din profil först.");
+      return;
+    }
 
     const likeRef = doc(db, "Fangster", props.catchItem._id, "Likes", user.uid);
     setIsTogglingLike(true);
@@ -186,7 +229,7 @@ const CatchFeedItem: Component<{
       } else {
         await setDoc(likeRef, {
           uid: user.uid,
-          userName: toUserLabel(user.displayName, user.email),
+          userName: persistedUserName,
           createdAtMs: Date.now(),
           createdAt: serverTimestamp(),
         });
@@ -208,6 +251,11 @@ const CatchFeedItem: Component<{
       setActionError("Logga in för att kunna kommentera.");
       return;
     }
+    const persistedUserName = toPersistedUserName(user.displayName);
+    if (!persistedUserName) {
+      setActionError("Saknar användarnamn. Uppdatera din profil först.");
+      return;
+    }
     if (!text) return;
     if (text.length > 280) {
       setActionError("Kommentaren får vara max 280 tecken.");
@@ -218,7 +266,7 @@ const CatchFeedItem: Component<{
     try {
       await addDoc(collection(db, "Fangster", props.catchItem._id, "Comments"), {
         uid: user.uid,
-        userName: toUserLabel(user.displayName, user.email),
+        userName: persistedUserName,
         text,
         createdAtMs: Date.now(),
         createdAt: serverTimestamp(),
@@ -241,6 +289,11 @@ const CatchFeedItem: Component<{
       console.error("Kunde inte radera kommentar", err);
       setActionError("Kunde inte radera kommentaren.");
     }
+  };
+
+  const openCommentComposer = () => {
+    setIsCommentsOpen(true);
+    setIsComposerOpen(true);
   };
 
   return (
@@ -268,10 +321,10 @@ const CatchFeedItem: Component<{
           </div>
           <Show when={photoCount() > 1}>
             <button type="button" class="slider-btn prev" onClick={goPrev} aria-label="Föregående bild">
-              {"<"}
+              <ChevronLeftIcon />
             </button>
             <button type="button" class="slider-btn next" onClick={goNext} aria-label="Nästa bild">
-              {">"}
+              <ChevronRightIcon />
             </button>
             <div class="slider-dots" role="tablist" aria-label="Bildval">
               <For each={photos()}>
@@ -329,21 +382,27 @@ const CatchFeedItem: Component<{
             class={`catch-action-btn ${likedByMe() ? "is-liked" : ""}`}
             onClick={() => void toggleLike()}
             disabled={isTogglingLike()}
+            aria-label={likedByMe() ? "Ta bort gilla-markering" : "Gilla fångst"}
           >
-            {likedByMe() ? "Gillad" : "Gilla"}
+            <HeartIcon />
+            <span>{likesCount()}</span>
           </button>
           <button
             type="button"
             class="catch-action-btn"
-            onClick={() => setIsCommentsOpen((open) => !open)}
+            onClick={openCommentComposer}
+            aria-label="Kommentera fångst"
           >
-            Kommentarer
+            <CommentIcon />
+            <span>{commentsCount()}</span>
           </button>
         </div>
 
         <div class="catch-post__meta">
           <strong>{likesCount()} gillar</strong>
-          <span>{commentsCount()} kommentarer</span>
+          <button type="button" class="link-button catch-comment-compose" onClick={openCommentComposer}>
+            Skriv kommentar
+          </button>
         </div>
 
         <Show when={commentsCount() > 0}>
@@ -379,17 +438,27 @@ const CatchFeedItem: Component<{
         </Show>
 
         <form class="catch-comment-form" onSubmit={(event) => void submitComment(event)}>
-          <input
-            class="catch-comment-input"
-            type="text"
-            placeholder="Skriv en kommentar..."
-            value={commentText()}
-            onInput={(event) => setCommentText(event.currentTarget.value)}
-            maxLength={280}
-          />
-          <button type="submit" class="link-button" disabled={isSavingComment()}>
-            {isSavingComment() ? "Skickar..." : "Skicka"}
-          </button>
+          <Show
+            when={isComposerOpen()}
+            fallback={
+              <button type="button" class="catch-comment-open" onClick={openCommentComposer}>
+                Lägg till kommentar...
+              </button>
+            }
+          >
+            <input
+              class="catch-comment-input"
+              type="text"
+              placeholder="Skriv en kommentar..."
+              value={commentText()}
+              onInput={(event) => setCommentText(event.currentTarget.value)}
+              maxLength={280}
+            />
+            <button type="submit" class="catch-comment-submit" disabled={isSavingComment()}>
+              <SendIcon />
+              <span>{isSavingComment() ? "Skickar..." : "Skicka"}</span>
+            </button>
+          </Show>
         </form>
 
         <Show when={props.currentUser() && props.catchItem.userId === props.currentUser()?.uid && props.catchItem._id}>
@@ -464,8 +533,37 @@ const WaterCatchesComponent = () => {
         <div class="form-status error">{deleteError()}</div>
       </Show>
 
-      <Show when={!catches.isLoading()} fallback={<div>Laddar fångster...</div>}>
-        <Show when={catchItems().length > 0} fallback={<div>Inga fångster registrerade ännu.</div>}>
+      <Show
+        when={!catches.isLoading()}
+        fallback={
+          <ul class="catch-list catch-feed catch-feed--loading" aria-busy="true" aria-live="polite">
+            <For each={LOADING_PLACEHOLDERS}>
+              {(item) => (
+                <li class="catch-card catch-post catch-skeleton" data-id={`skeleton-${item}`}>
+                  <div class="catch-skeleton__header">
+                    <span class="catch-skeleton__avatar" />
+                    <div class="catch-skeleton__meta">
+                      <span />
+                      <span />
+                    </div>
+                  </div>
+                  <div class="catch-skeleton__image" />
+                  <div class="catch-skeleton__line catch-skeleton__line--wide" />
+                  <div class="catch-skeleton__line" />
+                  <div class="catch-skeleton__actions">
+                    <span />
+                    <span />
+                  </div>
+                </li>
+              )}
+            </For>
+          </ul>
+        }
+      >
+        <Show
+          when={catchItems().length > 0}
+          fallback={<div class="catch-empty">Inga fångster registrerade ännu.</div>}
+        >
           <ul class="catch-list catch-feed">
             <For each={catchItems()}>
               {(item) => (

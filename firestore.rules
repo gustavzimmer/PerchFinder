@@ -5,8 +5,12 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function verifiedUser() {
+      return signedIn() && request.auth.token.email_verified == true;
+    }
+
     function isAdmin() {
-      return signedIn() &&
+      return verifiedUser() &&
         exists(/databases/$(database)/documents/Admins/$(request.auth.uid));
     }
 
@@ -18,6 +22,18 @@ service cloud.firestore {
       return usernameKey is string &&
         exists(usernameClaimRef(usernameKey)) &&
         get(usernameClaimRef(usernameKey)).data.uid == uid;
+    }
+
+    function socialProfileRef(uid) {
+      return /databases/$(database)/documents/SocialProfiles/$(uid);
+    }
+
+    function hasSocialProfile(uid) {
+      return exists(socialProfileRef(uid));
+    }
+
+    function socialDisplayName(uid) {
+      return get(socialProfileRef(uid)).data.displayName;
     }
 
     function validDisplayName(name) {
@@ -73,25 +89,25 @@ service cloud.firestore {
     }
 
     match /Admins/{uid} {
-      allow read: if signedIn() && request.auth.uid == uid;
+      allow read: if verifiedUser() && request.auth.uid == uid;
       allow write: if isAdmin();
     }
 
     match /UsernameIndex/{usernameKey} {
-      allow read: if signedIn();
+      allow read: if verifiedUser();
       allow create, update, delete: if false;
     }
 
     match /SocialProfiles/{uid} {
-      allow read: if signedIn();
+      allow read: if verifiedUser();
 
-      allow create: if signedIn() &&
+      allow create: if verifiedUser() &&
         request.auth.uid == uid &&
         validSocialProfile(uid, request.resource.data) &&
         request.resource.data.friends is list &&
         request.resource.data.friends.size() == 0;
 
-      allow update: if signedIn() &&
+      allow update: if verifiedUser() &&
         request.auth.uid == uid &&
         validSocialProfile(uid, request.resource.data) &&
         request.resource.data.createdAt == resource.data.createdAt &&
@@ -103,10 +119,10 @@ service cloud.firestore {
     }
 
     match /FriendRequests/{requestId} {
-      allow read: if signedIn() &&
+      allow read: if verifiedUser() &&
         (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
 
-      allow create: if signedIn() &&
+      allow create: if verifiedUser() &&
         request.resource.data.keys().hasOnly([
           "fromUid",
           "fromDisplayName",
@@ -121,7 +137,10 @@ service cloud.firestore {
         request.resource.data.toUid != request.auth.uid &&
         requestId == request.resource.data.fromUid + "_" + request.resource.data.toUid &&
         !exists(friendRequestRef(request.resource.data.toUid, request.resource.data.fromUid)) &&
-        exists(/databases/$(database)/documents/SocialProfiles/$(request.resource.data.toUid)) &&
+        hasSocialProfile(request.resource.data.fromUid) &&
+        hasSocialProfile(request.resource.data.toUid) &&
+        request.resource.data.fromDisplayName == socialDisplayName(request.resource.data.fromUid) &&
+        request.resource.data.toDisplayName == socialDisplayName(request.resource.data.toUid) &&
         validDisplayName(request.resource.data.fromDisplayName) &&
         validDisplayName(request.resource.data.toDisplayName) &&
         optionalShortString(request.resource.data.fromPhotoURL, 2048) &&
@@ -130,40 +149,21 @@ service cloud.firestore {
         request.resource.data.createdAtMs <= request.time.toMillis() + 900000 &&
         request.resource.data.createdAt != null;
 
-      allow delete: if signedIn() &&
+      allow delete: if verifiedUser() &&
         (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
 
       allow update: if false;
     }
 
     match /DailyCatchEvents/{eventId} {
-      allow read: if signedIn();
-
-      allow create: if signedIn() &&
-        request.resource.data.keys().hasOnly([
-          "userId",
-          "userDisplayName",
-          "userPhotoURL",
-          "bucket",
-          "delta",
-          "createdAtMs",
-          "expiresAtMs",
-          "createdAt"
-        ]) &&
-        request.resource.data.userId == request.auth.uid &&
-        request.resource.data.userDisplayName is string &&
-        request.resource.data.bucket in ["30", "35", "40", "45", "50+"] &&
-        request.resource.data.delta in [1, -1] &&
-        request.resource.data.createdAtMs is int &&
-        request.resource.data.expiresAtMs is int;
-
-      allow update, delete: if false;
+      allow read: if verifiedUser();
+      allow create, update, delete: if false;
     }
 
     match /Fangster/{catchId} {
       allow read: if true;
 
-      allow create: if signedIn() &&
+      allow create: if verifiedUser() &&
         request.resource.data.keys().hasOnly([
           "waterId",
           "weightG",
@@ -189,7 +189,10 @@ service cloud.firestore {
         request.resource.data.caughtAt.size() >= 16 &&
         request.resource.data.caughtAt.size() <= 40 &&
         request.resource.data.userId == request.auth.uid &&
-        optionalShortString(request.resource.data.userName, 24) &&
+        hasSocialProfile(request.auth.uid) &&
+        request.resource.data.userName is string &&
+        validDisplayName(request.resource.data.userName) &&
+        request.resource.data.userName == socialDisplayName(request.auth.uid) &&
         optionalNumberInRange(request.resource.data.weightG, 0, 30000) &&
         optionalNumberInRange(request.resource.data.lengthCm, 0, 200) &&
         optionalShortString(request.resource.data.notes, 1000) &&
@@ -203,7 +206,7 @@ service cloud.firestore {
         optionalNumberInRange(request.resource.data.pressureHpa, 850, 1150) &&
         request.resource.data.createdAt != null;
 
-      allow delete: if signedIn() &&
+      allow delete: if verifiedUser() &&
         (resource.data.userId == request.auth.uid || isAdmin());
 
       allow update: if false;
@@ -211,9 +214,10 @@ service cloud.firestore {
       match /Likes/{uid} {
         allow read: if true;
 
-        allow create: if signedIn() &&
+        allow create: if verifiedUser() &&
           catchExists(catchId) &&
           request.auth.uid == uid &&
+          hasSocialProfile(request.auth.uid) &&
           request.resource.data.keys().hasOnly([
             "uid",
             "userName",
@@ -221,11 +225,13 @@ service cloud.firestore {
             "createdAt"
           ]) &&
           request.resource.data.uid == request.auth.uid &&
-          optionalShortString(request.resource.data.userName, 24) &&
+          request.resource.data.userName is string &&
+          validDisplayName(request.resource.data.userName) &&
+          request.resource.data.userName == socialDisplayName(request.auth.uid) &&
           request.resource.data.createdAtMs is int &&
           request.resource.data.createdAt != null;
 
-        allow delete: if signedIn() &&
+        allow delete: if verifiedUser() &&
           (request.auth.uid == uid || isAdmin());
 
         allow update: if false;
@@ -234,8 +240,9 @@ service cloud.firestore {
       match /Comments/{commentId} {
         allow read: if true;
 
-        allow create: if signedIn() &&
+        allow create: if verifiedUser() &&
           catchExists(catchId) &&
+          hasSocialProfile(request.auth.uid) &&
           request.resource.data.keys().hasOnly([
             "uid",
             "userName",
@@ -244,12 +251,14 @@ service cloud.firestore {
             "createdAt"
           ]) &&
           request.resource.data.uid == request.auth.uid &&
-          optionalShortString(request.resource.data.userName, 24) &&
+          request.resource.data.userName is string &&
+          validDisplayName(request.resource.data.userName) &&
+          request.resource.data.userName == socialDisplayName(request.auth.uid) &&
           validCommentText(request.resource.data.text) &&
           request.resource.data.createdAtMs is int &&
           request.resource.data.createdAt != null;
 
-        allow delete: if signedIn() && (
+        allow delete: if verifiedUser() && (
           resource.data.uid == request.auth.uid ||
           isAdmin() ||
           (
@@ -275,7 +284,7 @@ service cloud.firestore {
     match /FiskeVattenRequests/{requestId} {
       allow read: if isAdmin();
 
-      allow create: if signedIn() &&
+      allow create: if verifiedUser() &&
         request.resource.data.keys().hasOnly([
           "name",
           "location",

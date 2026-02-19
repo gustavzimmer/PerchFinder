@@ -34,6 +34,21 @@ type AuthenticatedUser = {
   uid: string;
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DAILY_BUCKETS = new Set(["30", "35", "40", "45", "50+"]);
+
+const requireVerifiedCallableUser = (request: {
+  auth?: { uid: string; token?: Record<string, unknown> } | null;
+}) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Du måste vara inloggad.");
+  }
+  if (request.auth.token?.email_verified !== true) {
+    throw new HttpsError("failed-precondition", "Verifiera din e-post innan du använder den här funktionen.");
+  }
+  return request.auth.uid;
+};
+
 type AiStatsPayload = {
   waterName: string;
   totalCatches: number;
@@ -94,8 +109,14 @@ const authenticateAiRequester = async (req: RateLimitRequest): Promise<Authentic
 
   try {
     const decoded = await adminAuth.verifyIdToken(token);
+    if (decoded.email_verified !== true) {
+      throw new HttpsError("failed-precondition", "Verifiera din e-post innan du använder AI-rekommendation.");
+    }
     return { uid: decoded.uid };
   } catch (err) {
+    if (err instanceof HttpsError) {
+      throw err;
+    }
     logger.warn("Ogiltig auth-token i getWaterRecommendation", err as Error);
     throw new HttpsError("unauthenticated", "Ogiltig inloggning. Logga in igen.");
   }
@@ -374,11 +395,7 @@ export const claimUsername = onCall(async (request) => {
 });
 
 export const respondToFriendRequest = onCall(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "Du måste vara inloggad.");
-  }
-
-  const uid = request.auth.uid;
+  const uid = requireVerifiedCallableUser(request);
   const payload = (request.data ?? {}) as {
     requestId?: unknown;
     approve?: unknown;
@@ -432,6 +449,69 @@ export const respondToFriendRequest = onCall(async (request) => {
   return { ok: true };
 });
 
+export const addDailyCatchEvent = onCall(async (request) => {
+  const uid = requireVerifiedCallableUser(request);
+  const payload = (request.data ?? {}) as {
+    bucket?: unknown;
+    delta?: unknown;
+  };
+
+  if (typeof payload.bucket !== "string" || !DAILY_BUCKETS.has(payload.bucket)) {
+    throw new HttpsError("invalid-argument", "Ogiltig bucket.");
+  }
+  if (payload.delta !== 1 && payload.delta !== -1) {
+    throw new HttpsError("invalid-argument", "delta måste vara 1 eller -1.");
+  }
+
+  const profileRef = adminDb.collection("SocialProfiles").doc(uid);
+  const profileSnap = await profileRef.get();
+  if (!profileSnap.exists) {
+    throw new HttpsError("failed-precondition", "Social profil saknas.");
+  }
+
+  const profileData = profileSnap.data() as { displayName?: unknown; photoURL?: unknown } | undefined;
+  const userDisplayName = typeof profileData?.displayName === "string" ? profileData.displayName.trim() : "";
+  if (!userDisplayName || userDisplayName.length < 3 || userDisplayName.length > 24) {
+    throw new HttpsError("failed-precondition", "Ogiltigt användarnamn i social profil.");
+  }
+  const userPhotoURL = typeof profileData?.photoURL === "string" ? profileData.photoURL : null;
+
+  const now = Date.now();
+  if (payload.delta === -1) {
+    const existingEvents = await adminDb.collection("DailyCatchEvents").where("userId", "==", uid).get();
+    let currentCount = 0;
+    existingEvents.forEach((docSnap) => {
+      const data = docSnap.data() as {
+        bucket?: unknown;
+        delta?: unknown;
+        expiresAtMs?: unknown;
+      };
+      if (data.bucket !== payload.bucket) return;
+      const expiresAtMs = typeof data.expiresAtMs === "number" ? data.expiresAtMs : 0;
+      if (expiresAtMs <= now) return;
+      const delta = data.delta === 1 || data.delta === -1 ? data.delta : 0;
+      currentCount += delta;
+    });
+
+    if (currentCount <= 0) {
+      throw new HttpsError("failed-precondition", "Du kan inte minska under 0 för den klassen.");
+    }
+  }
+
+  await adminDb.collection("DailyCatchEvents").add({
+    userId: uid,
+    userDisplayName,
+    userPhotoURL,
+    bucket: payload.bucket,
+    delta: payload.delta,
+    createdAtMs: now,
+    expiresAtMs: now + DAY_MS,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+
+  return { ok: true };
+});
+
 export const getWaterRecommendation = onRequest({ secrets: [OPENAI_KEY] }, async (req, res) => {
   const originAllowed = applyAiCorsHeaders(req as RateLimitRequest, res);
   res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -475,9 +555,15 @@ export const getWaterRecommendation = onRequest({ secrets: [OPENAI_KEY] }, async
     try {
       requester = await authenticateAiRequester(req as RateLimitRequest);
     } catch (err) {
-      if (err instanceof HttpsError && err.code === "unauthenticated") {
-        res.status(401).json({ error: err.message });
-        return;
+      if (err instanceof HttpsError) {
+        if (err.code === "unauthenticated") {
+          res.status(401).json({ error: err.message });
+          return;
+        }
+        if (err.code === "failed-precondition") {
+          res.status(412).json({ error: err.message });
+          return;
+        }
       }
       throw err;
     }

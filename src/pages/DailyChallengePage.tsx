@@ -2,7 +2,6 @@ import { Component, For, Show, createEffect, createMemo, createSignal, onCleanup
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { httpsCallable } from "firebase/functions";
 import {
-  addDoc,
   doc,
   endAt,
   getDoc,
@@ -20,7 +19,7 @@ import { auth, dailyCatchEventCol, friendRequestCol, functions, socialProfileCol
 import type { DailyBucket, DailyCatchEvent, FriendRequest, SocialProfile } from "../types/Social.types";
 import { useMapUi } from "../context/MapUiContext";
 import { ensureSocialProfileClaimed } from "../utils/socialProfile";
-import { isUsernameTakenError } from "../utils/username";
+import { isFunctionsUnauthenticatedError, isUsernameTakenError } from "../utils/username";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
@@ -126,6 +125,10 @@ const respondToFriendRequestCall = httpsCallable<
   { requestId: string; approve: boolean },
   { ok: boolean }
 >(functions, "respondToFriendRequest");
+const addDailyCatchEventCall = httpsCallable<
+  { bucket: DailyBucket; delta: 1 | -1 },
+  { ok: boolean }
+>(functions, "addDailyCatchEvent");
 
 const buildFriendRequestId = (fromUid: string, toUid: string) => `${fromUid}_${toUid}`;
 
@@ -175,6 +178,11 @@ const DailyChallengePage: Component = () => {
     void ensureSocialProfileClaimed(user).catch((err) => {
       if (isUsernameTakenError(err)) {
         setError("Ditt användarnamn krockar med ett annat konto. Byt namn i profil.");
+        return;
+      }
+      if (isFunctionsUnauthenticatedError(err)) {
+        // Undvik att visa fel när auth-token inte hunnit synkas vid sidladdning.
+        console.warn("Skippade social profil-initiering: användaren var inte autentiserad ännu.");
         return;
       }
       console.error("Kunde inte initiera social profil", err);
@@ -337,6 +345,7 @@ const DailyChallengePage: Component = () => {
 
   const dailyLeaderboard = createMemo(() => buildLeaderboard(dailyEvents(), allowedUserIds()));
   const weeklyLeaderboard = createMemo(() => buildLeaderboard(weeklyEvents(), allowedUserIds()));
+  const weeklyPodium = createMemo(() => weeklyLeaderboard().slice(0, 3));
 
   const myCounts = createMemo(() => {
     const user = currentUser();
@@ -432,8 +441,7 @@ const DailyChallengePage: Component = () => {
     setStatus(null);
     setError(null);
     const user = currentUser();
-    const social = profile();
-    if (!user || !social) {
+    if (!user) {
       setError("Du måste vara inloggad.");
       return;
     }
@@ -445,20 +453,20 @@ const DailyChallengePage: Component = () => {
 
     setIsSavingCatch(true);
     try {
-      const now = Date.now();
-      await addDoc(dailyCatchEventCol, {
-        userId: user.uid,
-        userDisplayName: social.displayName,
-        userPhotoURL: social.photoURL ?? null,
+      await addDailyCatchEventCall({
         bucket,
         delta,
-        createdAtMs: now,
-        expiresAtMs: now + DAY_MS,
-        createdAt: serverTimestamp(),
       });
     } catch (err) {
       console.error("Kunde inte uppdatera fångstfönstret", err);
-      setError("Kunde inte uppdatera fångstfönstret.");
+      const message =
+        typeof err === "object" &&
+        err !== null &&
+        "message" in err &&
+        typeof (err as { message?: unknown }).message === "string"
+          ? (err as { message: string }).message
+          : "Kunde inte uppdatera fångstfönstret.";
+      setError(message);
     } finally {
       setIsSavingCatch(false);
     }
@@ -635,12 +643,28 @@ const DailyChallengePage: Component = () => {
         <section class="daily-card">
           <h2>Veckotopplista</h2>
           <Show when={weeklyLeaderboard().length > 0} fallback={<div>Ingen aktivitet senaste 7 dagarna.</div>}>
+            <Show when={weeklyPodium().length > 0}>
+              <ul class="daily-podium" aria-label="Veckans topp tre">
+                <For each={weeklyPodium()}>
+                  {(row, index) => (
+                    <li class={`daily-podium-item daily-podium-item--${index() + 1}`}>
+                      <span class="daily-podium-rank">#{index() + 1}</span>
+                      <strong class="daily-podium-name">{row.userDisplayName}</strong>
+                      <span class="daily-podium-score">{row.points} p</span>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </Show>
             <ol class="daily-leaderboard">
               <For each={weeklyLeaderboard()}>
                 {(row, index) => {
                   const level = getLevelForPoints(row.points);
+                  const isMe = row.userId === currentUser()?.uid;
                   return (
-                    <li class="daily-leaderboard-row">
+                    <li
+                      class={`daily-leaderboard-row ${index() < 3 ? "is-top" : ""} ${isMe ? "is-me" : ""}`}
+                    >
                       <span class="daily-rank">#{index() + 1}</span>
                       <span class="daily-name">{row.userDisplayName}</span>
                       <span class="daily-score">{row.points} p</span>
@@ -658,14 +682,19 @@ const DailyChallengePage: Component = () => {
           <Show when={dailyLeaderboard().length > 0} fallback={<div>Ingen aktivitet senaste 24 timmarna.</div>}>
             <ol class="daily-leaderboard">
               <For each={dailyLeaderboard()}>
-                {(row, index) => (
-                  <li class="daily-leaderboard-row">
-                    <span class="daily-rank">#{index() + 1}</span>
-                    <span class="daily-name">{row.userDisplayName}</span>
-                    <span class="daily-score">{row.points} p</span>
-                    <span class="daily-total">{row.total} fiskar</span>
-                  </li>
-                )}
+                {(row, index) => {
+                  const isMe = row.userId === currentUser()?.uid;
+                  return (
+                    <li
+                      class={`daily-leaderboard-row ${index() < 3 ? "is-top" : ""} ${isMe ? "is-me" : ""}`}
+                    >
+                      <span class="daily-rank">#{index() + 1}</span>
+                      <span class="daily-name">{row.userDisplayName}</span>
+                      <span class="daily-score">{row.points} p</span>
+                      <span class="daily-total">{row.total} fiskar</span>
+                    </li>
+                  );
+                }}
               </For>
             </ol>
           </Show>
