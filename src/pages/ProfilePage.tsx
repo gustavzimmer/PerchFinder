@@ -1,12 +1,14 @@
 import { A } from "@solidjs/router";
+import { FirebaseError } from "firebase/app";
 import { onAuthStateChanged, updateProfile, type User } from "firebase/auth";
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { Component, For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { auth, storage } from "../firebase";
 import useGetUserCatches from "../hooks/useGetUserCatches";
 import useGetWaters from "../hooks/useGetWaters";
+import { ensureSocialProfile } from "../utils/socialProfile";
+import { claimUniqueUsername, isUsernameTakenError, normalizeUsername } from "../utils/username";
 
-const normalizeUserName = (value: string) => value.trim().replace(/\s+/g, " ");
 const toUserLabel = (name: string | null | undefined, email: string | null | undefined) => {
   const trimmed = name?.trim();
   if (trimmed) return trimmed;
@@ -25,7 +27,7 @@ const ProfilePage: Component = () => {
   const [avatarError, setAvatarError] = createSignal<string | null>(null);
   const [avatarStatus, setAvatarStatus] = createSignal<string | null>(null);
   const [displayNameInput, setDisplayNameInput] = createSignal(
-    normalizeUserName(auth.currentUser?.displayName ?? "")
+    normalizeUsername(auth.currentUser?.displayName ?? "")
   );
   const [isSavingDisplayName, setIsSavingDisplayName] = createSignal(false);
   const [displayNameError, setDisplayNameError] = createSignal<string | null>(null);
@@ -38,7 +40,7 @@ const ProfilePage: Component = () => {
     const unsub = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       setAvatarUrl(user?.photoURL ?? null);
-      setDisplayNameInput(normalizeUserName(user?.displayName ?? ""));
+      setDisplayNameInput(normalizeUsername(user?.displayName ?? ""));
     });
     onCleanup(() => unsub());
   });
@@ -134,6 +136,11 @@ const ProfilePage: Component = () => {
 
       const previousPhoto = user.photoURL;
       await updateProfile(user, { photoURL: downloadUrl });
+      try {
+        await ensureSocialProfile(user);
+      } catch (socialErr) {
+        console.warn("Kunde inte synka social profil efter bilduppdatering", socialErr);
+      }
       setAvatarUrl(downloadUrl);
       await user.reload();
       setCurrentUser(auth.currentUser);
@@ -161,6 +168,11 @@ const ProfilePage: Component = () => {
     try {
       const previousPhoto = user.photoURL;
       await updateProfile(user, { photoURL: null });
+      try {
+        await ensureSocialProfile(user);
+      } catch (socialErr) {
+        console.warn("Kunde inte synka social profil efter borttagning av bild", socialErr);
+      }
       setAvatarUrl(null);
       await user.reload();
       setCurrentUser(auth.currentUser);
@@ -185,25 +197,43 @@ const ProfilePage: Component = () => {
       return;
     }
 
-    const nextName = normalizeUserName(displayNameInput());
+    const nextName = normalizeUsername(displayNameInput());
     if (nextName.length < 3 || nextName.length > 24) {
       setDisplayNameError("Användarnamn måste vara 3-24 tecken.");
       return;
     }
 
-    if (nextName === normalizeUserName(user.displayName ?? "")) {
+    if (nextName === normalizeUsername(user.displayName ?? "")) {
       setDisplayNameStatus("Användarnamnet är redan sparat.");
       return;
     }
 
     setIsSavingDisplayName(true);
     try {
+      await claimUniqueUsername({
+        uid: user.uid,
+        nextDisplayName: nextName,
+        previousDisplayName: user.displayName,
+      });
       await updateProfile(user, { displayName: nextName });
+      try {
+        await ensureSocialProfile(user, nextName);
+      } catch (socialErr) {
+        console.warn("Kunde inte synka social profil efter namnbyte", socialErr);
+      }
       await user.reload();
       setCurrentUser(auth.currentUser);
       setDisplayNameInput(nextName);
       setDisplayNameStatus("Användarnamn uppdaterat.");
     } catch (err) {
+      if (isUsernameTakenError(err)) {
+        setDisplayNameError("Användarnamnet är upptaget. Välj ett annat.");
+        return;
+      }
+      if (err instanceof FirebaseError && err.code === "permission-denied") {
+        setDisplayNameError("Saknar behörighet att byta användarnamn just nu.");
+        return;
+      }
       console.error("Kunde inte uppdatera användarnamn", err);
       setDisplayNameError("Kunde inte spara användarnamn just nu.");
     } finally {

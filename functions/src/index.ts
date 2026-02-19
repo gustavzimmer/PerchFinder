@@ -1,11 +1,112 @@
 import { setGlobalOptions } from "firebase-functions/v2";
-import { onRequest } from "firebase-functions/v2/https";
+import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import { defineSecret } from "firebase-functions/params";
 import OpenAI from "openai";
+import { initializeApp } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
+import { FieldValue, getFirestore } from "firebase-admin/firestore";
 
 setGlobalOptions({ maxInstances: 10 });
 const OPENAI_KEY = defineSecret("OPENAI_KEY");
+initializeApp();
+const adminDb = getFirestore();
+const adminAuth = getAuth();
+
+const normalizeUsername = (value: string) => value.trim().replace(/\s+/g, " ");
+const toUsernameKey = (value: string) => normalizeUsername(value).toLocaleLowerCase("sv-SE");
+
+export const claimUsername = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Du måste vara inloggad.");
+  }
+
+  const uid = request.auth.uid;
+  const payload = (request.data ?? {}) as {
+    nextDisplayName?: unknown;
+    previousDisplayName?: unknown;
+  };
+
+  if (typeof payload.nextDisplayName !== "string") {
+    throw new HttpsError("invalid-argument", "Användarnamn saknas.");
+  }
+
+  const nextDisplayName = normalizeUsername(payload.nextDisplayName);
+  if (nextDisplayName.length < 3 || nextDisplayName.length > 24) {
+    throw new HttpsError("invalid-argument", "Användarnamn måste vara 3-24 tecken.");
+  }
+
+  const previousDisplayName =
+    typeof payload.previousDisplayName === "string" ? normalizeUsername(payload.previousDisplayName) : null;
+  const nextKey = toUsernameKey(nextDisplayName);
+  const previousKey = previousDisplayName ? toUsernameKey(previousDisplayName) : null;
+
+  await adminDb.runTransaction(async (tx) => {
+    const usernameCol = adminDb.collection("UsernameIndex");
+    const nextRef = usernameCol.doc(nextKey);
+    const nextSnap = await tx.get(nextRef);
+    const previousRef = previousKey && previousKey !== nextKey ? usernameCol.doc(previousKey) : null;
+    const previousSnap = previousRef ? await tx.get(previousRef) : null;
+    const profileRef = adminDb.collection("SocialProfiles").doc(uid);
+    const profileSnap = await tx.get(profileRef);
+
+    if (nextSnap.exists) {
+      const data = nextSnap.data() as { uid?: string } | undefined;
+      if (!data?.uid || data.uid !== uid) {
+        throw new HttpsError("already-exists", "Användarnamnet används redan.");
+      }
+      tx.update(nextRef, {
+        displayName: nextDisplayName,
+        displayNameLower: nextKey,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    } else {
+      tx.set(nextRef, {
+        uid,
+        displayName: nextDisplayName,
+        displayNameLower: nextKey,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    if (previousRef && previousSnap?.exists) {
+      const previousData = previousSnap.data() as { uid?: string } | undefined;
+      if (previousData?.uid === uid) {
+        tx.delete(previousRef);
+      }
+    }
+
+    if (profileSnap.exists) {
+      const profileData = profileSnap.data() as { friends?: unknown; photoURL?: unknown; createdAt?: unknown };
+      tx.update(profileRef, {
+        uid,
+        displayName: nextDisplayName,
+        displayNameLower: nextKey,
+        friends: Array.isArray(profileData.friends) ? profileData.friends : [],
+        photoURL: typeof profileData.photoURL === "string" ? profileData.photoURL : null,
+        createdAt: profileData.createdAt ?? FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    } else {
+      tx.set(profileRef, {
+        uid,
+        displayName: nextDisplayName,
+        displayNameLower: nextKey,
+        friends: [],
+        photoURL: null,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+  });
+
+  await adminAuth.updateUser(uid, { displayName: nextDisplayName });
+  return {
+    displayName: nextDisplayName,
+    displayNameLower: nextKey,
+  };
+});
 
 export const getWaterRecommendation = onRequest({ secrets: [OPENAI_KEY] }, async (req, res) => {
   // Enkel CORS för browser

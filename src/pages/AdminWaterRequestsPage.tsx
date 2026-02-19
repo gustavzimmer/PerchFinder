@@ -6,6 +6,7 @@ import {
   doc,
   getDocs,
   getDocsFromServer,
+  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
@@ -14,17 +15,9 @@ import {
   where,
   writeBatch,
 } from "firebase/firestore";
-import { auth, catchCol, db, lureCol, waterCol, waterRequestCol } from "../firebase";
+import { adminsCol, auth, catchCol, db, lureCol, waterCol, waterRequestCol } from "../firebase";
 import type { WaterLocation, WaterRequest } from "../types/Map.types";
 import type { LureOption } from "../types/Catch.types";
-
-const parseAdminEmails = () => {
-  const raw = import.meta.env.VITE_ADMIN_EMAILS ?? "";
-  return raw
-    .split(",")
-    .map((email: string) => email.trim().toLowerCase())
-    .filter(Boolean);
-};
 
 const toUserLabel = (name: string | null | undefined, email: string | null | undefined) => {
   const trimmed = name?.trim();
@@ -55,6 +48,7 @@ const LURES_PAGE_SIZE = 20;
 
 const AdminWaterRequestsPage: Component = () => {
   const [currentUser, setCurrentUser] = createSignal<User | null>(auth.currentUser);
+  const [isAdminUser, setIsAdminUser] = createSignal(false);
   const [requests, setRequests] = createSignal<(WaterRequest & { _id: string })[]>([]);
   const [waters, setWaters] = createSignal<(WaterLocation & { _id: string })[]>([]);
   const [lures, setLures] = createSignal<(LureOption & { _id: string })[]>([]);
@@ -82,13 +76,6 @@ const AdminWaterRequestsPage: Component = () => {
   const [isLureSectionOpen, setIsLureSectionOpen] = createSignal(false);
   const [lureSearchQuery, setLureSearchQuery] = createSignal("");
   const [lurePage, setLurePage] = createSignal(1);
-  const adminEmails = parseAdminEmails();
-
-  const isAdmin = createMemo(() => {
-    const email = currentUser()?.email?.toLowerCase();
-    return !!email && adminEmails.includes(email);
-  });
-
   const filteredLures = createMemo(() => {
     const queryText = lureSearchQuery().trim().toLowerCase();
     if (!queryText) return lures();
@@ -107,6 +94,28 @@ const AdminWaterRequestsPage: Component = () => {
     const page = Math.min(Math.max(lurePage(), 1), lurePageCount());
     const start = (page - 1) * LURES_PAGE_SIZE;
     return filteredLures().slice(start, start + LURES_PAGE_SIZE);
+  });
+
+  createEffect(() => {
+    const user = currentUser();
+    if (!user) {
+      setIsAdminUser(false);
+      return;
+    }
+
+    const adminRef = doc(adminsCol, user.uid);
+    const unsub = onSnapshot(
+      adminRef,
+      (snap) => {
+        setIsAdminUser(snap.exists());
+      },
+      (err) => {
+        console.error("Kunde inte läsa admin-status", err);
+        setIsAdminUser(false);
+      }
+    );
+
+    onCleanup(() => unsub());
   });
 
   createEffect(() => {
@@ -443,6 +452,10 @@ const AdminWaterRequestsPage: Component = () => {
   onMount(() => {
     const unsub = onAuthStateChanged(auth, (user) => setCurrentUser(user));
     onCleanup(() => unsub());
+  });
+
+  createEffect(() => {
+    if (!isAdminUser()) return;
     void loadRequests();
     void loadWaters();
     void loadLures();
@@ -452,14 +465,8 @@ const AdminWaterRequestsPage: Component = () => {
     <main class="page">
       <h1>Godkänn vatten</h1>
 
-      <Show when={adminEmails.length === 0}>
-        <div class="form-status error">
-          Inga admin‑konton är konfigurerade. Sätt `VITE_ADMIN_EMAILS` i `.env`.
-        </div>
-      </Show>
-
       <Show when={currentUser()} fallback={<div>Du måste vara inloggad.</div>}>
-        <Show when={isAdmin()} fallback={<div>Du saknar behörighet för denna vy.</div>}>
+        <Show when={isAdminUser()} fallback={<div>Du saknar behörighet för denna vy.</div>}>
           <div class="card-actions">
             <button
               type="button"

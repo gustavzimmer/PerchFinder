@@ -14,7 +14,7 @@ const HomePage: Component = () => {
   });
 
   return (
-    <main class="page">
+    <main class="page home-page">
       <h1>Perch Finder</h1>
       <p class="lead">Utforska fiskevatten i kartan nedan.</p>
     </main>

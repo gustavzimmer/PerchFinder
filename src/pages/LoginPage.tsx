@@ -3,6 +3,8 @@ import { FirebaseError } from "firebase/app";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { Component, createSignal, onCleanup } from "solid-js";
 import { auth } from "../firebase";
+import { ensureSocialProfileClaimed } from "../utils/socialProfile";
+import { isUsernameTakenError } from "../utils/username";
 
 const LoginPage: Component = () => {
   const navigate = useNavigate();
@@ -52,7 +54,19 @@ const LoginPage: Component = () => {
       setIsSubmitting(true);
       const credential = await signInWithEmailAndPassword(auth, email().trim(), password());
       const userLabel = toUserLabel(credential.user.displayName, credential.user.email);
-      setStatus(`Inloggad som ${userLabel}. Omdirigerar...`);
+      try {
+        await ensureSocialProfileClaimed(credential.user);
+        setStatus(`Inloggad som ${userLabel}. Omdirigerar...`);
+      } catch (socialErr) {
+        if (isUsernameTakenError(socialErr)) {
+          setError("Användarnamnet är upptaget av ett annat konto. Byt namn i din profil.");
+          if (redirectTimer) clearTimeout(redirectTimer);
+          redirectTimer = window.setTimeout(() => navigate("/profil"), 1200);
+          return;
+        }
+        console.warn("Kunde inte uppdatera social profil vid inloggning", socialErr);
+        setStatus(`Inloggad som ${userLabel}, men social profil kunde inte uppdateras nu.`);
+      }
       setPassword("");
       if (redirectTimer) clearTimeout(redirectTimer);
       redirectTimer = window.setTimeout(() => navigate("/"), 1200);

@@ -1,23 +1,27 @@
 import './App.scss';
 
-import { Component } from 'solid-js';
+import { Component, Suspense, lazy } from 'solid-js';
 import { Route, Router, type RouteSectionProps } from '@solidjs/router';
-import HomePage from './pages/HomePage';
 import Navigation from './components/Navigation';
 import PersistentMap from './components/PersistentMap';
-import RegisterWaterPage from './pages/RegisterWaterPage';
-import WaterInfoPage from './pages/WaterInfoPage';
-import RegisterUserPage from './pages/RegisterUserPage';
-import LoginPage from './pages/LoginPage';
-import AdminWaterRequestsPage from './pages/AdminWaterRequestsPage';
-import ProfilePage from './pages/ProfilePage';
 import { MapUiProvider } from './context/MapUiContext';
+
+const HomePage = lazy(() => import('./pages/HomePage'));
+const RegisterWaterPage = lazy(() => import('./pages/RegisterWaterPage'));
+const WaterInfoPage = lazy(() => import('./pages/WaterInfoPage'));
+const RegisterUserPage = lazy(() => import('./pages/RegisterUserPage'));
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const AdminWaterRequestsPage = lazy(() => import('./pages/AdminWaterRequestsPage'));
+const ProfilePage = lazy(() => import('./pages/ProfilePage'));
+const DailyChallengePage = lazy(() => import('./pages/DailyChallengePage'));
 
 const Layout: Component<RouteSectionProps> = (props) => (
   <MapUiProvider>
     <div id="app">
       <Navigation />
-      {props.children}
+      <Suspense fallback={<main class="page"><div>Laddar sida...</div></main>}>
+        {props.children}
+      </Suspense>
       <PersistentMap />
     </div>
   </MapUiProvider>
@@ -31,6 +35,7 @@ const App: Component = () => (
       <Route path="/admin/vattenforfragan" component={AdminWaterRequestsPage} />
       <Route path="/vatten/:id" component={WaterInfoPage} />
       <Route path="/profil" component={ProfilePage} />
+      <Route path="/daglig-tavling" component={DailyChallengePage} />
       <Route path="/skapa-konto" component={RegisterUserPage} />
       <Route path="/logga-in" component={LoginPage} />
     </Route>

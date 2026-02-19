@@ -1,0 +1,246 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/Admins/$(request.auth.uid));
+    }
+
+    function usernameClaimRef(usernameKey) {
+      return /databases/$(database)/documents/UsernameIndex/$(usernameKey);
+    }
+
+    function hasUsernameClaim(uid, usernameKey) {
+      return usernameKey is string &&
+        exists(usernameClaimRef(usernameKey)) &&
+        get(usernameClaimRef(usernameKey)).data.uid == uid;
+    }
+
+    function validDisplayName(name) {
+      return name is string && name.size() >= 3 && name.size() <= 24;
+    }
+
+    function validSocialProfile(uid, data) {
+      return data.uid == uid &&
+        validDisplayName(data.displayName) &&
+        data.displayNameLower is string &&
+        data.displayNameLower.size() >= 3 &&
+        data.displayNameLower.size() <= 24 &&
+        hasUsernameClaim(uid, data.displayNameLower);
+    }
+
+    function optionalShortString(value, maxLen) {
+      return value == null || (value is string && value.size() <= maxLen);
+    }
+
+    function optionalNumberInRange(value, min, max) {
+      return value == null ||
+        ((value is int || value is float) && value >= min && value <= max);
+    }
+
+    function optionalListWithMaxItems(value, maxItems) {
+      return value == null || (value is list && value.size() <= maxItems);
+    }
+
+    match /Admins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if isAdmin();
+    }
+
+    match /UsernameIndex/{usernameKey} {
+      allow read: if signedIn();
+      allow create, update, delete: if false;
+    }
+
+    match /SocialProfiles/{uid} {
+      allow read: if signedIn();
+
+      allow create: if signedIn() &&
+        request.auth.uid == uid &&
+        validSocialProfile(uid, request.resource.data) &&
+        request.resource.data.friends is list &&
+        request.resource.data.friends.size() == 0;
+
+      allow update: if signedIn() && (
+        (
+          request.auth.uid == uid &&
+          validSocialProfile(uid, request.resource.data) &&
+          request.resource.data.createdAt == resource.data.createdAt
+        ) ||
+        (
+          request.auth.uid != uid &&
+          validSocialProfile(uid, request.resource.data) &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          request.resource.data.displayName == resource.data.displayName &&
+          request.resource.data.displayNameLower == resource.data.displayNameLower &&
+          request.resource.data.photoURL == resource.data.photoURL &&
+          request.resource.data.friends is list &&
+          resource.data.friends is list &&
+          request.resource.data.friends.size() == resource.data.friends.size() + 1 &&
+          request.resource.data.friends.hasAll(resource.data.friends) &&
+          request.resource.data.friends.hasAny([request.auth.uid])
+        )
+      );
+
+      allow delete: if false;
+    }
+
+    match /FriendRequests/{requestId} {
+      allow read: if signedIn() &&
+        (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+
+      allow create: if signedIn() &&
+        request.resource.data.keys().hasOnly([
+          "fromUid",
+          "fromDisplayName",
+          "fromPhotoURL",
+          "toUid",
+          "toDisplayName",
+          "createdAtMs",
+          "createdAt"
+        ]) &&
+        request.resource.data.fromUid == request.auth.uid &&
+        request.resource.data.toUid is string &&
+        request.resource.data.toUid != request.auth.uid &&
+        request.resource.data.fromDisplayName is string &&
+        request.resource.data.toDisplayName is string;
+
+      allow delete: if signedIn() &&
+        (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+
+      allow update: if false;
+    }
+
+    match /DailyCatchEvents/{eventId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn() &&
+        request.resource.data.keys().hasOnly([
+          "userId",
+          "userDisplayName",
+          "userPhotoURL",
+          "bucket",
+          "delta",
+          "createdAtMs",
+          "expiresAtMs",
+          "createdAt"
+        ]) &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.userDisplayName is string &&
+        request.resource.data.bucket in ["30", "35", "40", "45", "50+"] &&
+        request.resource.data.delta in [1, -1] &&
+        request.resource.data.createdAtMs is int &&
+        request.resource.data.expiresAtMs is int;
+
+      allow update, delete: if false;
+    }
+
+    match /Fangster/{catchId} {
+      allow read: if true;
+
+      allow create: if signedIn() &&
+        request.resource.data.keys().hasOnly([
+          "waterId",
+          "weightG",
+          "lengthCm",
+          "notes",
+          "photoUrl",
+          "photoUrls",
+          "lure",
+          "method",
+          "weatherCode",
+          "weatherSummary",
+          "temperatureC",
+          "pressureHpa",
+          "caughtAt",
+          "createdAt",
+          "userId",
+          "userEmail",
+          "userName"
+        ]) &&
+        request.resource.data.waterId is string &&
+        request.resource.data.waterId.size() > 0 &&
+        request.resource.data.waterId.size() <= 120 &&
+        request.resource.data.caughtAt is string &&
+        request.resource.data.caughtAt.size() >= 16 &&
+        request.resource.data.caughtAt.size() <= 40 &&
+        request.resource.data.userId == request.auth.uid &&
+        (
+          request.resource.data.userEmail == null ||
+          request.resource.data.userEmail == request.auth.token.email
+        ) &&
+        optionalShortString(request.resource.data.userName, 24) &&
+        optionalNumberInRange(request.resource.data.weightG, 0, 30000) &&
+        optionalNumberInRange(request.resource.data.lengthCm, 0, 200) &&
+        optionalShortString(request.resource.data.notes, 1000) &&
+        optionalShortString(request.resource.data.photoUrl, 2048) &&
+        optionalListWithMaxItems(request.resource.data.photoUrls, 8) &&
+        (request.resource.data.lure == null || request.resource.data.lure is map) &&
+        optionalShortString(request.resource.data.method, 80) &&
+        (request.resource.data.weatherCode == null || request.resource.data.weatherCode is int) &&
+        optionalShortString(request.resource.data.weatherSummary, 180) &&
+        optionalNumberInRange(request.resource.data.temperatureC, -50, 60) &&
+        optionalNumberInRange(request.resource.data.pressureHpa, 850, 1150) &&
+        request.resource.data.createdAt != null;
+
+      allow delete: if signedIn() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+
+      allow update: if false;
+    }
+
+    match /FiskeVatten/{waterId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /Lures/{lureId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /FiskeVattenRequests/{requestId} {
+      allow read: if isAdmin();
+
+      allow create: if
+        request.resource.data.keys().hasOnly([
+          "name",
+          "location",
+          "requestedAt",
+          "requestedBy",
+          "requestedByEmail",
+          "requestedByName"
+        ]) &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0 &&
+        request.resource.data.location.lat is number &&
+        request.resource.data.location.lng is number &&
+        (
+          (
+            signedIn() &&
+            request.resource.data.requestedBy == request.auth.uid &&
+            request.resource.data.requestedByEmail == request.auth.token.email
+          ) ||
+          (
+            !signedIn() &&
+            request.resource.data.requestedBy == null &&
+            request.resource.data.requestedByEmail == null
+          )
+        ) &&
+        (
+          request.resource.data.requestedByName == null ||
+          request.resource.data.requestedByName is string
+        );
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

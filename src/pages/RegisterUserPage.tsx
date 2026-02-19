@@ -1,7 +1,8 @@
 import { Component, createSignal } from "solid-js";
 import { FirebaseError } from "firebase/app";
-import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { createUserWithEmailAndPassword, deleteUser } from "firebase/auth";
 import { auth } from "../firebase";
+import { claimUniqueUsername, isUsernameTakenError, normalizeUsername } from "../utils/username";
 
 const RegisterUserPage: Component = () => {
   const [username, setUsername] = createSignal("");
@@ -28,8 +29,6 @@ const RegisterUserPage: Component = () => {
     return "Kunde inte skapa konto just nu.";
   };
 
-  const normalizeUsername = (value: string) => value.trim().replace(/\s+/g, " ");
-
   const handleSubmit = async (event: Event) => {
     event.preventDefault();
     setStatus(null);
@@ -54,22 +53,28 @@ const RegisterUserPage: Component = () => {
     try {
       setIsSubmitting(true);
       const credential = await createUserWithEmailAndPassword(auth, email().trim(), password());
-      let couldSaveUserName = true;
       try {
-        await updateProfile(credential.user, { displayName: nextUsername });
-      } catch (nameErr) {
-        console.warn("Kunde inte spara användarnamn vid registrering", nameErr);
-        couldSaveUserName = false;
-        setStatus("Konto skapat, men användarnamnet kunde inte sparas. Sätt det på profilsidan.");
+        await claimUniqueUsername({
+          uid: credential.user.uid,
+          nextDisplayName: nextUsername,
+        });
+        await credential.user.reload();
+      } catch (setupErr) {
+        await deleteUser(credential.user).catch((deleteErr) => {
+          console.warn("Kunde inte ta bort delvis skapat konto", deleteErr);
+        });
+        throw setupErr;
       }
-      if (couldSaveUserName) {
-        setStatus(`Konto skapat för ${nextUsername}!`);
-      }
+      setStatus(`Konto skapat för ${nextUsername}!`);
       setUsername("");
       setEmail("");
       setPassword("");
       setConfirmPassword("");
     } catch (err) {
+      if (isUsernameTakenError(err)) {
+        setError("Användarnamnet används redan.");
+        return;
+      }
       console.error("Kunde inte skapa användare", err);
       setError(toFriendlyMessage(err));
     } finally {

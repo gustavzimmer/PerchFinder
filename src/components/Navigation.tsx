@@ -1,8 +1,8 @@
 import { A, useNavigate } from "@solidjs/router";
 import { Component, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
-import { onSnapshot, query } from "firebase/firestore";
-import { auth, waterRequestCol } from "../firebase";
+import { doc, onSnapshot, query } from "firebase/firestore";
+import { adminsCol, auth, waterRequestCol } from "../firebase";
 import LogoDark from "../assets/images/perchfinder_logo_dark.png";
 
 const Navigation: Component = () => {
@@ -11,6 +11,7 @@ const Navigation: Component = () => {
     const [isSigningOut, setIsSigningOut] = createSignal(false);
     const [isMenuOpen, setIsMenuOpen] = createSignal(false);
     const [pendingRequestCount, setPendingRequestCount] = createSignal(0);
+    const [isAdminUser, setIsAdminUser] = createSignal(false);
     const toUserLabel = (displayName: string | null | undefined, email: string | null | undefined) => {
         const name = displayName?.trim();
         if (name) return name;
@@ -18,15 +19,6 @@ const Navigation: Component = () => {
         const [localPart] = email.split("@");
         return localPart || email;
     };
-    const adminEmails = (import.meta.env.VITE_ADMIN_EMAILS ?? "")
-        .split(",")
-        .map((email: string) => email.trim().toLowerCase())
-        .filter(Boolean);
-    const isAdmin = () => {
-        const email = currentUser()?.email?.toLowerCase();
-        return !!email && adminEmails.includes(email);
-    };
-
     onMount(() => {
         const unsub = onAuthStateChanged(auth, (user) => {
             setCurrentUser(user);
@@ -35,7 +27,29 @@ const Navigation: Component = () => {
     });
 
     createEffect(() => {
-        if (!isAdmin()) {
+        const user = currentUser();
+        if (!user) {
+            setIsAdminUser(false);
+            return;
+        }
+
+        const adminRef = doc(adminsCol, user.uid);
+        const unsub = onSnapshot(
+            adminRef,
+            (snap) => {
+                setIsAdminUser(snap.exists());
+            },
+            (err) => {
+                console.error("Kunde inte läsa admin-status", err);
+                setIsAdminUser(false);
+            }
+        );
+
+        onCleanup(() => unsub());
+    });
+
+    createEffect(() => {
+        if (!isAdminUser()) {
             setPendingRequestCount(0);
             return;
         }
@@ -90,9 +104,9 @@ const Navigation: Component = () => {
                     <div class="nav-links">
                         <A href="/registrera-fiskevatten" onClick={() => setIsMenuOpen(false)}>Registrera vatten</A>
                         {currentUser() && (
-                            <A href="/profil" onClick={() => setIsMenuOpen(false)}>Min profil</A>
+                            <A href="/daglig-tavling" onClick={() => setIsMenuOpen(false)}>PerchBuddy</A>
                         )}
-                        {isAdmin() && (
+                        {isAdminUser() && (
                             <A href="/admin/vattenforfragan" onClick={() => setIsMenuOpen(false)}>
                                 Admin: Godkänn vatten
                                 <Show when={pendingRequestCount() > 0}>
@@ -103,9 +117,9 @@ const Navigation: Component = () => {
                     </div>
                     {currentUser() ? (
                         <div class="nav-links nav-auth">
-                            <span class="nav-user">
+                            <A href="/profil" class="nav-user" onClick={() => setIsMenuOpen(false)}>
                                 {toUserLabel(currentUser()?.displayName, currentUser()?.email)}
-                            </span>
+                            </A>
                             <button
                                 type="button"
                                 class="nav-button"

@@ -1,5 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
+import { getFunctions } from "firebase/functions";
 import {
   collection,
   CollectionReference,
@@ -12,6 +13,13 @@ import {
 import { getStorage } from "firebase/storage";
 import { WaterLocation, WaterRequest } from "./types/Map.types";
 import { Catch, LureOption } from "./types/Catch.types";
+import {
+  AdminProfile,
+  DailyCatchEvent,
+  FriendRequest,
+  SocialProfile,
+  UsernameIndex,
+} from "./types/Social.types";
 
 // Config from env file
 const firebaseConfig = {
@@ -46,6 +54,7 @@ export const db = createFirestore();
 export const storage = getStorage(app);
 
 export const auth = getAuth(app);
+export const functions = getFunctions(app);
 
 const createCollection = <T = DocumentData>(collectionName: string) => {
   return collection(db, collectionName) as CollectionReference<T>;
@@ -55,3 +64,8 @@ export const waterCol = createCollection<WaterLocation>("FiskeVatten");
 export const waterRequestCol = createCollection<WaterRequest>("FiskeVattenRequests");
 export const catchCol = createCollection<Catch>("Fangster");
 export const lureCol = createCollection<LureOption>("Lures");
+export const socialProfileCol = createCollection<SocialProfile>("SocialProfiles");
+export const usernameIndexCol = createCollection<UsernameIndex>("UsernameIndex");
+export const adminsCol = createCollection<AdminProfile>("Admins");
+export const friendRequestCol = createCollection<FriendRequest>("FriendRequests");
+export const dailyCatchEventCol = createCollection<DailyCatchEvent>("DailyCatchEvents");
