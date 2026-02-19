@@ -1,5 +1,9 @@
 import { createSignal } from "solid-js";
-import { auth } from "../firebase";
+import { auth, getAppCheckToken } from "../firebase";
+
+const AI_RECOMMENDATION_URL =
+  import.meta.env.VITE_AI_RECOMMENDATION_URL ??
+  "https://getwaterrecommendation-bcdwkmqjia-uc.a.run.app";
 
 export type WaterStatsPayload = {
   waterName: string;
@@ -49,14 +53,19 @@ const useWaterRecommendation = () => {
       if (!user) {
         throw new Error("unauthenticated");
       }
+      const appCheckToken = await getAppCheckToken();
       const idToken = await user.getIdToken();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
+      };
+      if (appCheckToken) {
+        headers["X-Firebase-AppCheck"] = appCheckToken;
+      }
 
-      const res = await fetch("https://getwaterrecommendation-bcdwkmqjia-uc.a.run.app", {
+      const res = await fetch(AI_RECOMMENDATION_URL, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`,
-        },
+        headers,
         body: JSON.stringify({ stats }),
       });
       if (!res.ok) {

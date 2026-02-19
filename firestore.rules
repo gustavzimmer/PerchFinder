@@ -46,6 +46,16 @@ service cloud.firestore {
       return value == null || (value is list && value.size() <= maxItems);
     }
 
+    function validLatLng(location) {
+      return location is map &&
+        location.lat is number &&
+        location.lng is number &&
+        location.lat >= -90 &&
+        location.lat <= 90 &&
+        location.lng >= -180 &&
+        location.lng <= 180;
+    }
+
     function validCommentText(text) {
       return text is string && text.size() > 0 && text.size() <= 280;
     }
@@ -56,6 +66,10 @@ service cloud.firestore {
 
     function catchExists(catchId) {
       return exists(catchRef(catchId));
+    }
+
+    function friendRequestRef(fromUid, toUid) {
+      return /databases/$(database)/documents/FriendRequests/$(fromUid + "_" + toUid);
     }
 
     match /Admins/{uid} {
@@ -105,8 +119,16 @@ service cloud.firestore {
         request.resource.data.fromUid == request.auth.uid &&
         request.resource.data.toUid is string &&
         request.resource.data.toUid != request.auth.uid &&
-        request.resource.data.fromDisplayName is string &&
-        request.resource.data.toDisplayName is string;
+        requestId == request.resource.data.fromUid + "_" + request.resource.data.toUid &&
+        !exists(friendRequestRef(request.resource.data.toUid, request.resource.data.fromUid)) &&
+        exists(/databases/$(database)/documents/SocialProfiles/$(request.resource.data.toUid)) &&
+        validDisplayName(request.resource.data.fromDisplayName) &&
+        validDisplayName(request.resource.data.toDisplayName) &&
+        optionalShortString(request.resource.data.fromPhotoURL, 2048) &&
+        request.resource.data.createdAtMs is int &&
+        request.resource.data.createdAtMs >= request.time.toMillis() - 900000 &&
+        request.resource.data.createdAtMs <= request.time.toMillis() + 900000 &&
+        request.resource.data.createdAt != null;
 
       allow delete: if signedIn() &&
         (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
@@ -253,7 +275,7 @@ service cloud.firestore {
     match /FiskeVattenRequests/{requestId} {
       allow read: if isAdmin();
 
-      allow create: if
+      allow create: if signedIn() &&
         request.resource.data.keys().hasOnly([
           "name",
           "location",
@@ -264,24 +286,12 @@ service cloud.firestore {
         ]) &&
         request.resource.data.name is string &&
         request.resource.data.name.size() > 0 &&
-        request.resource.data.location.lat is number &&
-        request.resource.data.location.lng is number &&
-        (
-          (
-            signedIn() &&
-            request.resource.data.requestedBy == request.auth.uid &&
-            request.resource.data.requestedByEmail == request.auth.token.email
-          ) ||
-          (
-            !signedIn() &&
-            request.resource.data.requestedBy == null &&
-            request.resource.data.requestedByEmail == null
-          )
-        ) &&
-        (
-          request.resource.data.requestedByName == null ||
-          request.resource.data.requestedByName is string
-        );
+        request.resource.data.name.size() <= 120 &&
+        validLatLng(request.resource.data.location) &&
+        request.resource.data.requestedAt != null &&
+        request.resource.data.requestedBy == request.auth.uid &&
+        request.resource.data.requestedByEmail == request.auth.token.email &&
+        optionalShortString(request.resource.data.requestedByName, 24);
 
       allow update, delete: if isAdmin();
     }

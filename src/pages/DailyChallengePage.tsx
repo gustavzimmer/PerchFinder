@@ -11,6 +11,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   startAt,
   where,
   limit,
@@ -125,6 +126,8 @@ const respondToFriendRequestCall = httpsCallable<
   { requestId: string; approve: boolean },
   { ok: boolean }
 >(functions, "respondToFriendRequest");
+
+const buildFriendRequestId = (fromUid: string, toUid: string) => `${fromUid}_${toUid}`;
 
 const DailyChallengePage: Component = () => {
   const { setMode, setSelectedLocation } = useMapUi();
@@ -379,7 +382,15 @@ const DailyChallengePage: Component = () => {
 
     setIsSendingFriendRequest(target.uid);
     try {
-      await addDoc(friendRequestCol, {
+      const requestId = buildFriendRequestId(user.uid, target.uid);
+      const requestRef = doc(friendRequestCol, requestId);
+      const existing = await getDoc(requestRef);
+      if (existing.exists()) {
+        setStatus(`Du har redan skickat en förfrågan till ${target.displayName}.`);
+        return;
+      }
+
+      await setDoc(requestRef, {
         fromUid: user.uid,
         fromDisplayName: sourceProfile.displayName,
         fromPhotoURL: sourceProfile.photoURL ?? null,

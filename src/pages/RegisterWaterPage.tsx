@@ -31,14 +31,18 @@ const RegisterWaterPage: Component = () => {
     try {
       setIsSaving(true);
       const user = auth.currentUser;
+      if (!user) {
+        setError("Du måste vara inloggad för att skicka vattenförfrågan.");
+        return;
+      }
       const loc = selectedLocation()!;
       await addDoc(waterRequestCol, {
         name: name().trim(),
         location: loc,
         requestedAt: serverTimestamp(),
-        requestedBy: user?.uid ?? null,
-        requestedByEmail: user?.email ?? null,
-        requestedByName: toUserName(user?.displayName, user?.email),
+        requestedBy: user.uid,
+        requestedByEmail: user.email ?? null,
+        requestedByName: toUserName(user.displayName, user.email),
       });
       setStatus(`Förfrågan för "${name().trim()}" skickades!`);
       setName("");

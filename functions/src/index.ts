@@ -15,6 +15,12 @@ const adminDb = getFirestore();
 const adminAuth = getAuth();
 const AI_RATE_LIMIT_MAX_REQUESTS = 10;
 const AI_RATE_LIMIT_WINDOW_MS = 12 * 60 * 60 * 1000;
+const AI_MAX_BODY_BYTES = 25_000;
+const ALLOWED_AI_ORIGINS = new Set([
+  "https://perchfinder.netlify.app",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+]);
 
 const normalizeUsername = (value: string) => value.trim().replace(/\s+/g, " ");
 const toUsernameKey = (value: string) => normalizeUsername(value).toLocaleLowerCase("sv-SE");
@@ -26,6 +32,41 @@ type RateLimitRequest = {
 
 type AuthenticatedUser = {
   uid: string;
+};
+
+type AiStatsPayload = {
+  waterName: string;
+  totalCatches: number;
+  general: {
+    topLures: string[];
+    topLureCategories: string[];
+    topMethods: string[];
+    topJigMethods: string[];
+    bestTimeOfDay: string;
+    avgTempC: number | null;
+    commonWeather: string | null;
+    avgPressureHpa: number | null;
+  };
+  currentConditions: {
+    observedAtIso: string;
+    weatherSummary: string | null;
+    weatherCode: number | null;
+    temperatureC: number | null;
+    pressureHpa: number | null;
+    timeOfDay: string;
+  } | null;
+  similarWhenLikeNow: {
+    comparedCatchCount: number;
+    matchedCatchCount: number;
+    topLures: string[];
+    topLureCategories: string[];
+    topMethods: string[];
+    topJigMethods: string[];
+    topTimesOfDay: string[];
+    commonWeather: string | null;
+    avgTempC: number | null;
+    avgPressureHpa: number | null;
+  } | null;
 };
 
 const hashRateKey = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 40);
@@ -58,6 +99,147 @@ const authenticateAiRequester = async (req: RateLimitRequest): Promise<Authentic
     logger.warn("Ogiltig auth-token i getWaterRecommendation", err as Error);
     throw new HttpsError("unauthenticated", "Ogiltig inloggning. Logga in igen.");
   }
+};
+
+const ensureObject = (value: unknown, fieldName: string) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new HttpsError("invalid-argument", `${fieldName} måste vara ett objekt.`);
+  }
+  return value as Record<string, unknown>;
+};
+
+const ensureString = (value: unknown, fieldName: string, minLen: number, maxLen: number) => {
+  if (typeof value !== "string") {
+    throw new HttpsError("invalid-argument", `${fieldName} måste vara text.`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length < minLen || trimmed.length > maxLen) {
+    throw new HttpsError("invalid-argument", `${fieldName} måste vara ${minLen}-${maxLen} tecken.`);
+  }
+  return trimmed;
+};
+
+const ensureNullableString = (value: unknown, fieldName: string, maxLen: number) => {
+  if (value == null) return null;
+  return ensureString(value, fieldName, 1, maxLen);
+};
+
+const ensureInteger = (value: unknown, fieldName: string, min: number, max: number) => {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
+    throw new HttpsError("invalid-argument", `${fieldName} måste vara ett heltal mellan ${min} och ${max}.`);
+  }
+  return value;
+};
+
+const ensureNullableNumber = (value: unknown, fieldName: string, min: number, max: number) => {
+  if (value == null) return null;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+    throw new HttpsError("invalid-argument", `${fieldName} måste vara ett tal mellan ${min} och ${max}.`);
+  }
+  return value;
+};
+
+const ensureStringArray = (value: unknown, fieldName: string, maxItems: number, maxLen: number) => {
+  if (!Array.isArray(value)) {
+    throw new HttpsError("invalid-argument", `${fieldName} måste vara en lista.`);
+  }
+  if (value.length > maxItems) {
+    throw new HttpsError("invalid-argument", `${fieldName} får ha max ${maxItems} värden.`);
+  }
+
+  return value.map((item, index) => ensureString(item, `${fieldName}[${index}]`, 1, maxLen));
+};
+
+const ensureIsoDateString = (value: unknown, fieldName: string) => {
+  const iso = ensureString(value, fieldName, 10, 40);
+  if (Number.isNaN(Date.parse(iso))) {
+    throw new HttpsError("invalid-argument", `${fieldName} måste vara ett giltigt datum.`);
+  }
+  return iso;
+};
+
+const validateAiStatsPayload = (value: unknown): AiStatsPayload => {
+  const stats = ensureObject(value, "stats");
+  const general = ensureObject(stats.general, "stats.general");
+
+  const currentRaw = stats.currentConditions == null ? null : ensureObject(stats.currentConditions, "stats.currentConditions");
+  const similarRaw =
+    stats.similarWhenLikeNow == null ? null : ensureObject(stats.similarWhenLikeNow, "stats.similarWhenLikeNow");
+
+  const payload: AiStatsPayload = {
+    waterName: ensureString(stats.waterName, "stats.waterName", 1, 80),
+    totalCatches: ensureInteger(stats.totalCatches, "stats.totalCatches", 0, 50000),
+    general: {
+      topLures: ensureStringArray(general.topLures, "stats.general.topLures", 8, 60),
+      topLureCategories: ensureStringArray(general.topLureCategories, "stats.general.topLureCategories", 8, 60),
+      topMethods: ensureStringArray(general.topMethods, "stats.general.topMethods", 8, 60),
+      topJigMethods: ensureStringArray(general.topJigMethods, "stats.general.topJigMethods", 8, 60),
+      bestTimeOfDay: ensureString(general.bestTimeOfDay, "stats.general.bestTimeOfDay", 1, 30),
+      avgTempC: ensureNullableNumber(general.avgTempC, "stats.general.avgTempC", -50, 60),
+      commonWeather: ensureNullableString(general.commonWeather, "stats.general.commonWeather", 60),
+      avgPressureHpa: ensureNullableNumber(general.avgPressureHpa, "stats.general.avgPressureHpa", 850, 1150),
+    },
+    currentConditions: currentRaw
+      ? {
+          observedAtIso: ensureIsoDateString(currentRaw.observedAtIso, "stats.currentConditions.observedAtIso"),
+          weatherSummary: ensureNullableString(currentRaw.weatherSummary, "stats.currentConditions.weatherSummary", 60),
+          weatherCode: ensureNullableNumber(currentRaw.weatherCode, "stats.currentConditions.weatherCode", 0, 99),
+          temperatureC: ensureNullableNumber(currentRaw.temperatureC, "stats.currentConditions.temperatureC", -50, 60),
+          pressureHpa: ensureNullableNumber(currentRaw.pressureHpa, "stats.currentConditions.pressureHpa", 850, 1150),
+          timeOfDay: ensureString(currentRaw.timeOfDay, "stats.currentConditions.timeOfDay", 1, 20),
+        }
+      : null,
+    similarWhenLikeNow: similarRaw
+      ? {
+          comparedCatchCount: ensureInteger(
+            similarRaw.comparedCatchCount,
+            "stats.similarWhenLikeNow.comparedCatchCount",
+            0,
+            50000
+          ),
+          matchedCatchCount: ensureInteger(
+            similarRaw.matchedCatchCount,
+            "stats.similarWhenLikeNow.matchedCatchCount",
+            0,
+            50000
+          ),
+          topLures: ensureStringArray(similarRaw.topLures, "stats.similarWhenLikeNow.topLures", 8, 60),
+          topLureCategories: ensureStringArray(
+            similarRaw.topLureCategories,
+            "stats.similarWhenLikeNow.topLureCategories",
+            8,
+            60
+          ),
+          topMethods: ensureStringArray(similarRaw.topMethods, "stats.similarWhenLikeNow.topMethods", 8, 60),
+          topJigMethods: ensureStringArray(similarRaw.topJigMethods, "stats.similarWhenLikeNow.topJigMethods", 8, 60),
+          topTimesOfDay: ensureStringArray(similarRaw.topTimesOfDay, "stats.similarWhenLikeNow.topTimesOfDay", 8, 30),
+          commonWeather: ensureNullableString(similarRaw.commonWeather, "stats.similarWhenLikeNow.commonWeather", 60),
+          avgTempC: ensureNullableNumber(similarRaw.avgTempC, "stats.similarWhenLikeNow.avgTempC", -50, 60),
+          avgPressureHpa: ensureNullableNumber(
+            similarRaw.avgPressureHpa,
+            "stats.similarWhenLikeNow.avgPressureHpa",
+            850,
+            1150
+          ),
+        }
+      : null,
+  };
+
+  return payload;
+};
+
+const resolveOrigin = (req: RateLimitRequest) => readHeader(req.headers.origin).trim();
+
+const applyAiCorsHeaders = (req: RateLimitRequest, res: { set: (name: string, value: string) => void }) => {
+  const origin = resolveOrigin(req);
+  if (!origin) return true;
+  if (!ALLOWED_AI_ORIGINS.has(origin)) {
+    return false;
+  }
+
+  res.set("Access-Control-Allow-Origin", origin);
+  res.set("Vary", "Origin");
+  return true;
 };
 
 const enforceAiRateLimit = async (rateLimitKey: string) => {
@@ -251,10 +433,13 @@ export const respondToFriendRequest = onCall(async (request) => {
 });
 
 export const getWaterRecommendation = onRequest({ secrets: [OPENAI_KEY] }, async (req, res) => {
-  // Enkel CORS för browser
-  res.set("Access-Control-Allow-Origin", "*");
+  const originAllowed = applyAiCorsHeaders(req as RateLimitRequest, res);
   res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  if (!originAllowed) {
+    res.status(403).json({ error: "Origin not allowed." });
+    return;
+  }
 
   if (req.method === "OPTIONS") {
     res.status(204).send("");
@@ -280,6 +465,12 @@ export const getWaterRecommendation = onRequest({ secrets: [OPENAI_KEY] }, async
   const client = new OpenAI({ apiKey: openaiKey });
 
   try {
+    const rawBody = (req as { rawBody?: Buffer }).rawBody;
+    if (rawBody && rawBody.length > AI_MAX_BODY_BYTES) {
+      res.status(413).json({ error: "Payload för stor." });
+      return;
+    }
+
     let requester: AuthenticatedUser;
     try {
       requester = await authenticateAiRequester(req as RateLimitRequest);
@@ -291,8 +482,8 @@ export const getWaterRecommendation = onRequest({ secrets: [OPENAI_KEY] }, async
       throw err;
     }
 
-    const stats = req.body?.stats as Record<string, unknown> | undefined;
-    if (!stats || typeof stats !== "object") {
+    const statsRaw = req.body?.stats;
+    if (!statsRaw || typeof statsRaw !== "object") {
       res.status(400).send("Missing stats in body");
       return;
     }
@@ -311,13 +502,7 @@ export const getWaterRecommendation = onRequest({ secrets: [OPENAI_KEY] }, async
       throw err;
     }
 
-    const payload = {
-      waterName: typeof stats.waterName === "string" ? stats.waterName : "okänt vatten",
-      totalCatches: typeof stats.totalCatches === "number" ? stats.totalCatches : 0,
-      general: (stats.general ?? null) as Record<string, unknown> | null,
-      currentConditions: (stats.currentConditions ?? null) as Record<string, unknown> | null,
-      similarWhenLikeNow: (stats.similarWhenLikeNow ?? null) as Record<string, unknown> | null,
-    };
+    const payload = validateAiStatsPayload(statsRaw);
 
     const systemPrompt =
       "Du är en erfaren fiskeguide för abborrfiske. Du använder ENDAST datan du får och hittar inte på saknad information.";
@@ -352,7 +537,6 @@ ${JSON.stringify(payload, null, 2)}
     res.status(200).json({ recommendation: text });
   } catch (err) {
     logger.error("Fel i getWaterRecommendation", err as Error);
-    res.set("Access-Control-Allow-Origin", "*");
     res.status(500).json({ error: "Error generating recommendation", detail: (err as Error)?.message ?? String(err) });
   }
 });

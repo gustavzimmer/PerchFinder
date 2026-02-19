@@ -1,4 +1,5 @@
 import { initializeApp } from "firebase/app";
+import { getToken as getAppCheckTokenInternal, initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import { getAuth } from "firebase/auth";
 import { getFunctions } from "firebase/functions";
 import {
@@ -55,6 +56,26 @@ export const storage = getStorage(app);
 
 export const auth = getAuth(app);
 export const functions = getFunctions(app);
+
+const appCheckSiteKey = import.meta.env.VITE_RECAPTCHA_V3_SITE_KEY as string | undefined;
+export const appCheck =
+  typeof window !== "undefined" && appCheckSiteKey
+    ? initializeAppCheck(app, {
+        provider: new ReCaptchaV3Provider(appCheckSiteKey),
+        isTokenAutoRefreshEnabled: true,
+      })
+    : null;
+
+export const getAppCheckToken = async () => {
+  if (!appCheck) return null;
+  try {
+    const token = await getAppCheckTokenInternal(appCheck, false);
+    return token.token;
+  } catch (err) {
+    console.warn("Kunde inte hämta App Check-token", err);
+    return null;
+  }
+};
 
 const createCollection = <T = DocumentData>(collectionName: string) => {
   return collection(db, collectionName) as CollectionReference<T>;
