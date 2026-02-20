@@ -9,8 +9,6 @@ import {
   onSnapshot,
   orderBy,
   query,
-  serverTimestamp,
-  setDoc,
   startAt,
   where,
   limit,
@@ -125,12 +123,14 @@ const respondToFriendRequestCall = httpsCallable<
   { requestId: string; approve: boolean },
   { ok: boolean }
 >(functions, "respondToFriendRequest");
+const createFriendRequestCall = httpsCallable<
+  { targetUid: string },
+  { ok: boolean }
+>(functions, "createFriendRequest");
 const addDailyCatchEventCall = httpsCallable<
   { bucket: DailyBucket; delta: 1 | -1 },
   { ok: boolean }
 >(functions, "addDailyCatchEvent");
-
-const buildFriendRequestId = (fromUid: string, toUid: string) => `${fromUid}_${toUid}`;
 
 const DailyChallengePage: Component = () => {
   const { setMode, setSelectedLocation } = useMapUi();
@@ -309,7 +309,14 @@ const DailyChallengePage: Component = () => {
         if (!isActive) return;
         const next = snapshot.docs
           .map((item) => ({ ...(item.data() as SocialProfile), _id: item.id }))
-          .filter((item) => !blocked.has(item.uid));
+          .filter(
+            (item) =>
+              item.uid === item._id &&
+              !blocked.has(item.uid) &&
+              typeof item.displayName === "string" &&
+              item.displayName.trim().length >= 3 &&
+              item.displayName.trim().length <= 24
+          );
         setSearchResults(next);
       } catch (err) {
         console.error("Kunde inte söka användare", err);
@@ -391,29 +398,22 @@ const DailyChallengePage: Component = () => {
 
     setIsSendingFriendRequest(target.uid);
     try {
-      const requestId = buildFriendRequestId(user.uid, target.uid);
-      const requestRef = doc(friendRequestCol, requestId);
-      const existing = await getDoc(requestRef);
-      if (existing.exists()) {
-        setStatus(`Du har redan skickat en förfrågan till ${target.displayName}.`);
-        return;
-      }
-
-      await setDoc(requestRef, {
-        fromUid: user.uid,
-        fromDisplayName: sourceProfile.displayName,
-        fromPhotoURL: sourceProfile.photoURL ?? null,
-        toUid: target.uid,
-        toDisplayName: target.displayName,
-        createdAtMs: Date.now(),
-        createdAt: serverTimestamp(),
+      await createFriendRequestCall({
+        targetUid: target.uid,
       });
       setStatus(`Förfrågan skickad till ${target.displayName}.`);
       setSearchResults((prev) => prev.filter((item) => item.uid !== target.uid));
       setFriendSearch("");
     } catch (err) {
       console.error("Kunde inte skicka vänförfrågan", err);
-      setError("Kunde inte skicka vänförfrågan.");
+      const message =
+        typeof err === "object" &&
+        err !== null &&
+        "message" in err &&
+        typeof (err as { message?: unknown }).message === "string"
+          ? (err as { message: string }).message
+          : "Kunde inte skicka vänförfrågan.";
+      setError(message);
     } finally {
       setIsSendingFriendRequest(null);
     }

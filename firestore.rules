@@ -122,37 +122,9 @@ service cloud.firestore {
       allow read: if verifiedUser() &&
         (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
 
-      allow create: if verifiedUser() &&
-        request.resource.data.keys().hasOnly([
-          "fromUid",
-          "fromDisplayName",
-          "fromPhotoURL",
-          "toUid",
-          "toDisplayName",
-          "createdAtMs",
-          "createdAt"
-        ]) &&
-        request.resource.data.fromUid == request.auth.uid &&
-        request.resource.data.toUid is string &&
-        request.resource.data.toUid != request.auth.uid &&
-        requestId == request.resource.data.fromUid + "_" + request.resource.data.toUid &&
-        !exists(friendRequestRef(request.resource.data.toUid, request.resource.data.fromUid)) &&
-        hasSocialProfile(request.resource.data.fromUid) &&
-        hasSocialProfile(request.resource.data.toUid) &&
-        request.resource.data.fromDisplayName == socialDisplayName(request.resource.data.fromUid) &&
-        request.resource.data.toDisplayName == socialDisplayName(request.resource.data.toUid) &&
-        validDisplayName(request.resource.data.fromDisplayName) &&
-        validDisplayName(request.resource.data.toDisplayName) &&
-        optionalShortString(request.resource.data.fromPhotoURL, 2048) &&
-        request.resource.data.createdAtMs is int &&
-        request.resource.data.createdAtMs >= request.time.toMillis() - 900000 &&
-        request.resource.data.createdAtMs <= request.time.toMillis() + 900000 &&
-        request.resource.data.createdAt != null;
-
-      allow delete: if verifiedUser() &&
-        (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
-
-      allow update: if false;
+      // Friend requests are server-controlled via Cloud Functions to avoid spoofing
+      // and client clock/race issues.
+      allow create, update, delete: if false;
     }
 
     match /DailyCatchEvents/{eventId} {
