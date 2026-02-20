@@ -181,7 +181,30 @@ service cloud.firestore {
       allow delete: if verifiedUser() &&
         (resource.data.userId == request.auth.uid || isAdmin());
 
-      allow update: if false;
+      allow update: if verifiedUser() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.waterId == resource.data.waterId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.caughtAt == resource.data.caughtAt &&
+        request.resource.data.photoUrl == resource.data.photoUrl &&
+        request.resource.data.photoUrls == resource.data.photoUrls &&
+        request.resource.data.lure == resource.data.lure &&
+        request.resource.data.method == resource.data.method &&
+        request.resource.data.weatherCode == resource.data.weatherCode &&
+        request.resource.data.weatherSummary == resource.data.weatherSummary &&
+        request.resource.data.temperatureC == resource.data.temperatureC &&
+        request.resource.data.pressureHpa == resource.data.pressureHpa &&
+        request.resource.data.userName == resource.data.userName &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          "weightG",
+          "lengthCm",
+          "notes"
+        ]) &&
+        optionalNumberInRange(request.resource.data.weightG, 0, 30000) &&
+        optionalNumberInRange(request.resource.data.lengthCm, 0, 200) &&
+        (request.resource.data.weightG != null || request.resource.data.lengthCm != null) &&
+        optionalShortString(request.resource.data.notes, 1000);
 
       match /Likes/{uid} {
         allow read: if true;

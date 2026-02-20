@@ -23,6 +23,7 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  updateDoc,
 } from "firebase/firestore";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import type { Catch } from "../types/Catch.types";
@@ -49,6 +50,13 @@ const formatCatchTime = (value: string) => {
     hour: "2-digit",
     minute: "2-digit",
   });
+};
+
+const parseOptionalNumber = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const next = Number(trimmed.replace(",", "."));
+  return Number.isFinite(next) ? next : NaN;
 };
 
 type CatchItem = Catch & { _id: string };
@@ -98,6 +106,14 @@ const ChevronRightIcon: Component = () => (
   </svg>
 );
 
+const MoreIcon: Component = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="5.5" cy="12" r="1.7" />
+    <circle cx="12" cy="12" r="1.7" />
+    <circle cx="18.5" cy="12" r="1.7" />
+  </svg>
+);
+
 const LOADING_PLACEHOLDERS = [1, 2, 3];
 
 const CatchFeedItem: Component<{
@@ -113,8 +129,16 @@ const CatchFeedItem: Component<{
   const [isComposerOpen, setIsComposerOpen] = createSignal(false);
   const [isSavingComment, setIsSavingComment] = createSignal(false);
   const [isTogglingLike, setIsTogglingLike] = createSignal(false);
+  const [isMenuOpen, setIsMenuOpen] = createSignal(false);
+  const [isEditing, setIsEditing] = createSignal(false);
+  const [isSavingEdit, setIsSavingEdit] = createSignal(false);
+  const [editWeight, setEditWeight] = createSignal("");
+  const [editLength, setEditLength] = createSignal("");
+  const [editNotes, setEditNotes] = createSignal("");
+  const [actionStatus, setActionStatus] = createSignal<string | null>(null);
   const [actionError, setActionError] = createSignal<string | null>(null);
   const [photoIndex, setPhotoIndex] = createSignal(0);
+  let menuRef: HTMLDivElement | undefined;
 
   const photos = createMemo(() =>
     props.catchItem.photoUrls && props.catchItem.photoUrls.length > 0
@@ -126,6 +150,7 @@ const CatchFeedItem: Component<{
   const photoCount = createMemo(() => photos().length);
   const likesCount = createMemo(() => likes().length);
   const commentsCount = createMemo(() => comments().length);
+  const isOwnCatch = createMemo(() => props.currentUser()?.uid === props.catchItem.userId);
 
   const likedByMe = createMemo(() => {
     const uid = props.currentUser()?.uid;
@@ -143,6 +168,26 @@ const CatchFeedItem: Component<{
     if (photoIndex() >= photoCount()) {
       setPhotoIndex(0);
     }
+  });
+
+  createEffect(() => {
+    if (isEditing()) return;
+    setEditWeight(props.catchItem.weightG != null ? String(props.catchItem.weightG) : "");
+    setEditLength(props.catchItem.lengthCm != null ? String(props.catchItem.lengthCm) : "");
+    setEditNotes(props.catchItem.notes ?? "");
+  });
+
+  createEffect(() => {
+    if (!isMenuOpen()) return;
+    const closeOnOutside = (event: PointerEvent) => {
+      if (!menuRef) return;
+      const target = event.target;
+      if (target instanceof Node && !menuRef.contains(target)) {
+        setIsMenuOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", closeOnOutside);
+    onCleanup(() => window.removeEventListener("pointerdown", closeOnOutside));
   });
 
   createEffect(() => {
@@ -209,6 +254,7 @@ const CatchFeedItem: Component<{
   };
 
   const toggleLike = async () => {
+    setActionStatus(null);
     setActionError(null);
     const user = props.currentUser();
     if (!user) {
@@ -244,6 +290,7 @@ const CatchFeedItem: Component<{
 
   const submitComment = async (event: Event) => {
     event.preventDefault();
+    setActionStatus(null);
     setActionError(null);
     const user = props.currentUser();
     const text = commentText().trim();
@@ -282,6 +329,7 @@ const CatchFeedItem: Component<{
   };
 
   const deleteComment = async (commentId: string) => {
+    setActionStatus(null);
     setActionError(null);
     try {
       await deleteDoc(doc(db, "Fangster", props.catchItem._id, "Comments", commentId));
@@ -296,6 +344,69 @@ const CatchFeedItem: Component<{
     setIsComposerOpen(true);
   };
 
+  const openEdit = () => {
+    setActionStatus(null);
+    setActionError(null);
+    setIsMenuOpen(false);
+    setIsEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setIsEditing(false);
+    setEditWeight(props.catchItem.weightG != null ? String(props.catchItem.weightG) : "");
+    setEditLength(props.catchItem.lengthCm != null ? String(props.catchItem.lengthCm) : "");
+    setEditNotes(props.catchItem.notes ?? "");
+  };
+
+  const saveEdit = async (event: Event) => {
+    event.preventDefault();
+    setActionStatus(null);
+    setActionError(null);
+
+    if (!isOwnCatch()) {
+      setActionError("Du kan bara redigera dina egna fångster.");
+      return;
+    }
+
+    const nextWeight = parseOptionalNumber(editWeight());
+    const nextLength = parseOptionalNumber(editLength());
+
+    if (Number.isNaN(nextWeight) || Number.isNaN(nextLength)) {
+      setActionError("Vikt/längd måste vara siffror.");
+      return;
+    }
+    if (nextWeight !== null && (nextWeight < 0 || nextWeight > 30000)) {
+      setActionError("Vikt måste vara mellan 0 och 30000 gram.");
+      return;
+    }
+    if (nextLength !== null && (nextLength < 0 || nextLength > 200)) {
+      setActionError("Längd måste vara mellan 0 och 200 cm.");
+      return;
+    }
+    if (nextWeight === null && nextLength === null) {
+      setActionError("Ange minst vikt eller längd.");
+      return;
+    }
+
+    const nextNotes = editNotes().trim();
+
+    setIsSavingEdit(true);
+    try {
+      await updateDoc(doc(catchCol, props.catchItem._id), {
+        weightG: nextWeight,
+        lengthCm: nextLength,
+        notes: nextNotes ? nextNotes : null,
+      });
+      setIsEditing(false);
+      setActionStatus("Fångsten uppdaterades.");
+    } catch (err) {
+      console.error("Kunde inte uppdatera fångst", err);
+      setActionError("Kunde inte uppdatera fångsten.");
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
   return (
     <li class="catch-card catch-post" data-id={props.catchItem._id}>
       <header class="catch-post__header">
@@ -306,6 +417,37 @@ const CatchFeedItem: Component<{
           <strong>{toUserLabel(props.catchItem.userName, props.catchItem.userEmail)}</strong>
           <span>{formatCatchTime(props.catchItem.caughtAt)}</span>
         </div>
+        <Show when={isOwnCatch()}>
+          <div class={`catch-post__menu ${isMenuOpen() ? "is-open" : ""}`} ref={menuRef}>
+            <button
+              type="button"
+              class="catch-post__menu-trigger"
+              aria-label="Fler val"
+              aria-expanded={isMenuOpen()}
+              onClick={() => setIsMenuOpen((open) => !open)}
+            >
+              <MoreIcon />
+            </button>
+            <Show when={isMenuOpen()}>
+              <div class="catch-post__menu-panel">
+                <button type="button" class="catch-post__menu-item" onClick={openEdit}>
+                  Redigera
+                </button>
+                <button
+                  type="button"
+                  class="catch-post__menu-item is-danger"
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    props.onDelete(props.catchItem._id);
+                  }}
+                  disabled={props.deletingId() === props.catchItem._id}
+                >
+                  {props.deletingId() === props.catchItem._id ? "Raderar..." : "Radera"}
+                </button>
+              </div>
+            </Show>
+          </div>
+        </Show>
       </header>
 
       <Show when={photoCount() > 0}>
@@ -374,6 +516,51 @@ const CatchFeedItem: Component<{
           <p class="catch-post__caption">
             <strong>{toUserLabel(props.catchItem.userName, props.catchItem.userEmail)}</strong> {props.catchItem.notes}
           </p>
+        </Show>
+
+        <Show when={isEditing()}>
+          <form class="catch-edit-form" onSubmit={(event) => void saveEdit(event)}>
+            <div class="catch-edit-grid">
+              <label>
+                <span>Vikt (g)</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={editWeight()}
+                  onInput={(event) => setEditWeight(event.currentTarget.value)}
+                  placeholder="t.ex. 780"
+                />
+              </label>
+              <label>
+                <span>Längd (cm)</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={editLength()}
+                  onInput={(event) => setEditLength(event.currentTarget.value)}
+                  placeholder="t.ex. 38"
+                />
+              </label>
+            </div>
+            <label>
+              <span>Notering</span>
+              <input
+                type="text"
+                value={editNotes()}
+                maxLength={1000}
+                onInput={(event) => setEditNotes(event.currentTarget.value)}
+                placeholder="Valfritt"
+              />
+            </label>
+            <div class="catch-edit-actions">
+              <button type="button" class="secondary-button" onClick={cancelEdit} disabled={isSavingEdit()}>
+                Avbryt
+              </button>
+              <button type="submit" class="primary-button" disabled={isSavingEdit()}>
+                {isSavingEdit() ? "Sparar..." : "Spara ändringar"}
+              </button>
+            </div>
+          </form>
         </Show>
 
         <div class="catch-post__actions">
@@ -461,15 +648,8 @@ const CatchFeedItem: Component<{
           </Show>
         </form>
 
-        <Show when={props.currentUser() && props.catchItem.userId === props.currentUser()?.uid && props.catchItem._id}>
-          <button
-            type="button"
-            class="danger-button catch-post__delete"
-            onClick={() => props.onDelete(props.catchItem._id)}
-            disabled={props.deletingId() === props.catchItem._id}
-          >
-            {props.deletingId() === props.catchItem._id ? "Raderar..." : "Radera fångst"}
-          </button>
+        <Show when={actionStatus()}>
+          <div class="muted catch-post__status">{actionStatus()}</div>
         </Show>
 
         <Show when={actionError()}>
