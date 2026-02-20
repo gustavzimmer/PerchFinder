@@ -1032,6 +1032,7 @@ h3 {
   justify-content: stretch;
   padding: 1rem 0.75rem calc(1rem + env(safe-area-inset-bottom));
   overflow-y: auto;
+  overflow-x: hidden;
   z-index: 60;
 }
 
@@ -1047,14 +1048,17 @@ h3 {
   flex-direction: column;
   gap: 0.75rem;
   overflow-y: auto;
+  overflow-x: hidden;
   position: relative;
   border: 1px solid var(--border);
 }
 
 .catch-modal__header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  gap: 0.5rem;
   position: sticky;
   top: 0;
   padding: 1rem;
@@ -1067,6 +1071,7 @@ h3 {
   display: grid;
   gap: 0.75rem;
   padding: 0 1rem 1rem;
+  min-width: 0;
 }
 
 .catch-form label {
@@ -1075,11 +1080,15 @@ h3 {
   gap: 0.35rem;
   font-weight: 700;
   color: var(--text);
+  min-width: 0;
 }
 
 .catch-form input,
 .catch-form textarea,
 .catch-form select {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1208,6 +1217,7 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  max-width: 100%;
 }
 
 .photo-thumb {
@@ -2240,14 +2250,18 @@ h3 {
   gap: 0.4rem;
   max-height: 220px;
   overflow: auto;
+  overflow-x: hidden;
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 0.4rem;
   background: var(--panel);
+  min-width: 0;
 }
 
 .lure-option {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   text-align: left;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -2262,10 +2276,14 @@ h3 {
 .lure-option strong {
   font-size: 0.98rem;
   color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .lure-option small {
   color: var(--muted);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .lure-option.is-selected {
