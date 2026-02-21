@@ -171,6 +171,11 @@ const ensureStringArray = (value: unknown, fieldName: string, maxItems: number, 
   return value.map((item, index) => ensureString(item, `${fieldName}[${index}]`, 1, maxLen));
 };
 
+const ensureDisplayName = (value: unknown, fieldName: string) => {
+  const name = ensureString(value, fieldName, 3, 24);
+  return normalizeUsername(name);
+};
+
 const ensureIsoDateString = (value: unknown, fieldName: string) => {
   const iso = ensureString(value, fieldName, 10, 40);
   if (Number.isNaN(Date.parse(iso))) {
@@ -444,6 +449,89 @@ export const respondToFriendRequest = onCall(async (request) => {
     }
 
     tx.delete(requestRef);
+  });
+
+  return { ok: true };
+});
+
+export const createFriendRequest = onCall(async (request) => {
+  const uid = requireVerifiedCallableUser(request);
+  const payload = (request.data ?? {}) as {
+    targetUid?: unknown;
+  };
+
+  if (typeof payload.targetUid !== "string" || !payload.targetUid.trim()) {
+    throw new HttpsError("invalid-argument", "Ogiltigt targetUid.");
+  }
+
+  const targetUid = payload.targetUid.trim();
+  if (targetUid === uid) {
+    throw new HttpsError("failed-precondition", "Du kan inte lägga till dig själv.");
+  }
+
+  try {
+    await adminAuth.getUser(targetUid);
+  } catch (err) {
+    logger.warn("createFriendRequest: target user saknas i Auth", { targetUid, err });
+    throw new HttpsError("not-found", "Användaren hittades inte.");
+  }
+
+  const sourceProfileRef = adminDb.collection("SocialProfiles").doc(uid);
+  const targetProfileRef = adminDb.collection("SocialProfiles").doc(targetUid);
+  const requestId = `${uid}_${targetUid}`;
+  const requestRef = adminDb.collection("FriendRequests").doc(requestId);
+  const reverseRequestRef = adminDb.collection("FriendRequests").doc(`${targetUid}_${uid}`);
+  const now = Date.now();
+
+  await adminDb.runTransaction(async (tx) => {
+    const [sourceSnap, targetSnap, existingSnap, reverseSnap] = await Promise.all([
+      tx.get(sourceProfileRef),
+      tx.get(targetProfileRef),
+      tx.get(requestRef),
+      tx.get(reverseRequestRef),
+    ]);
+
+    if (!sourceSnap.exists || !targetSnap.exists) {
+      throw new HttpsError("not-found", "Användaren hittades inte.");
+    }
+    if (existingSnap.exists) {
+      throw new HttpsError("already-exists", "Du har redan skickat en förfrågan.");
+    }
+    if (reverseSnap.exists) {
+      throw new HttpsError("already-exists", "Användaren har redan skickat en förfrågan till dig.");
+    }
+
+    const sourceData = sourceSnap.data() as {
+      displayName?: unknown;
+      photoURL?: unknown;
+      friends?: unknown;
+    };
+    const targetData = targetSnap.data() as {
+      displayName?: unknown;
+      friends?: unknown;
+    };
+
+    const sourceDisplayName = ensureDisplayName(sourceData.displayName, "sourceDisplayName");
+    const targetDisplayName = ensureDisplayName(targetData.displayName, "targetDisplayName");
+    const sourceFriends = Array.isArray(sourceData.friends)
+      ? sourceData.friends.filter((entry): entry is string => typeof entry === "string")
+      : [];
+    const targetFriends = Array.isArray(targetData.friends)
+      ? targetData.friends.filter((entry): entry is string => typeof entry === "string")
+      : [];
+    if (sourceFriends.includes(targetUid) || targetFriends.includes(uid)) {
+      throw new HttpsError("failed-precondition", "Ni är redan vänner.");
+    }
+
+    tx.set(requestRef, {
+      fromUid: uid,
+      fromDisplayName: sourceDisplayName,
+      fromPhotoURL: typeof sourceData.photoURL === "string" ? sourceData.photoURL : null,
+      toUid: targetUid,
+      toDisplayName: targetDisplayName,
+      createdAtMs: now,
+      createdAt: FieldValue.serverTimestamp(),
+    });
   });
 
   return { ok: true };

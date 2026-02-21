@@ -122,37 +122,9 @@ service cloud.firestore {
       allow read: if verifiedUser() &&
         (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
 
-      allow create: if verifiedUser() &&
-        request.resource.data.keys().hasOnly([
-          "fromUid",
-          "fromDisplayName",
-          "fromPhotoURL",
-          "toUid",
-          "toDisplayName",
-          "createdAtMs",
-          "createdAt"
-        ]) &&
-        request.resource.data.fromUid == request.auth.uid &&
-        request.resource.data.toUid is string &&
-        request.resource.data.toUid != request.auth.uid &&
-        requestId == request.resource.data.fromUid + "_" + request.resource.data.toUid &&
-        !exists(friendRequestRef(request.resource.data.toUid, request.resource.data.fromUid)) &&
-        hasSocialProfile(request.resource.data.fromUid) &&
-        hasSocialProfile(request.resource.data.toUid) &&
-        request.resource.data.fromDisplayName == socialDisplayName(request.resource.data.fromUid) &&
-        request.resource.data.toDisplayName == socialDisplayName(request.resource.data.toUid) &&
-        validDisplayName(request.resource.data.fromDisplayName) &&
-        validDisplayName(request.resource.data.toDisplayName) &&
-        optionalShortString(request.resource.data.fromPhotoURL, 2048) &&
-        request.resource.data.createdAtMs is int &&
-        request.resource.data.createdAtMs >= request.time.toMillis() - 900000 &&
-        request.resource.data.createdAtMs <= request.time.toMillis() + 900000 &&
-        request.resource.data.createdAt != null;
-
-      allow delete: if verifiedUser() &&
-        (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
-
-      allow update: if false;
+      // Friend requests are server-controlled via Cloud Functions to avoid spoofing
+      // and client clock/race issues.
+      allow create, update, delete: if false;
     }
 
     match /DailyCatchEvents/{eventId} {
@@ -209,7 +181,30 @@ service cloud.firestore {
       allow delete: if verifiedUser() &&
         (resource.data.userId == request.auth.uid || isAdmin());
 
-      allow update: if false;
+      allow update: if verifiedUser() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.waterId == resource.data.waterId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.caughtAt == resource.data.caughtAt &&
+        request.resource.data.photoUrl == resource.data.photoUrl &&
+        request.resource.data.photoUrls == resource.data.photoUrls &&
+        request.resource.data.lure == resource.data.lure &&
+        request.resource.data.method == resource.data.method &&
+        request.resource.data.weatherCode == resource.data.weatherCode &&
+        request.resource.data.weatherSummary == resource.data.weatherSummary &&
+        request.resource.data.temperatureC == resource.data.temperatureC &&
+        request.resource.data.pressureHpa == resource.data.pressureHpa &&
+        request.resource.data.userName == resource.data.userName &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          "weightG",
+          "lengthCm",
+          "notes"
+        ]) &&
+        optionalNumberInRange(request.resource.data.weightG, 0, 30000) &&
+        optionalNumberInRange(request.resource.data.lengthCm, 0, 200) &&
+        (request.resource.data.weightG != null || request.resource.data.lengthCm != null) &&
+        optionalShortString(request.resource.data.notes, 1000);
 
       match /Likes/{uid} {
         allow read: if true;

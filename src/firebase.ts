@@ -21,6 +21,16 @@ import {
   SocialProfile,
   UsernameIndex,
 } from "./types/Social.types";
+import {
+  AiAdviceLog,
+  AiCoachSignal,
+  League,
+  LeagueInvite,
+  LeagueMember,
+  LeagueWeeklyScore,
+  SessionReport,
+  TackleLogEntry,
+} from "./types/ProMvp.types";
 
 // Config from env file
 const firebaseConfig = {
@@ -90,3 +100,11 @@ export const usernameIndexCol = createCollection<UsernameIndex>("UsernameIndex")
 export const adminsCol = createCollection<AdminProfile>("Admins");
 export const friendRequestCol = createCollection<FriendRequest>("FriendRequests");
 export const dailyCatchEventCol = createCollection<DailyCatchEvent>("DailyCatchEvents");
+export const aiCoachSignalsCol = createCollection<AiCoachSignal>("AiCoachSignals");
+export const aiAdviceLogCol = createCollection<AiAdviceLog>("AiAdviceLog");
+export const leaguesCol = createCollection<League>("Leagues");
+export const leagueMembersCol = createCollection<LeagueMember>("LeagueMembers");
+export const leagueInvitesCol = createCollection<LeagueInvite>("LeagueInvites");
+export const leagueWeeklyScoresCol = createCollection<LeagueWeeklyScore>("LeagueWeeklyScores");
+export const sessionReportsCol = createCollection<SessionReport>("SessionReports");
+export const tackleLogCol = createCollection<TackleLogEntry>("TackleLog");
