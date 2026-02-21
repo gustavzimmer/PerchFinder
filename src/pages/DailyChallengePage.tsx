@@ -46,6 +46,14 @@ const EMPTY_COUNTS = (): Record<DailyBucket, number> => ({
   "50+": 0,
 });
 
+const EMPTY_BUCKET_FLAGS = (): Record<DailyBucket, boolean> => ({
+  "30": false,
+  "35": false,
+  "40": false,
+  "45": false,
+  "50+": false,
+});
+
 const formatTimeAgo = (timestampMs: number, nowMs: number) => {
   const diff = Math.max(0, nowMs - timestampMs);
   const minutes = Math.floor(diff / 60000);
@@ -132,6 +140,18 @@ const addDailyCatchEventCall = httpsCallable<
   { ok: boolean }
 >(functions, "addDailyCatchEvent");
 
+const toErrorMessage = (err: unknown, fallback: string) => {
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "message" in err &&
+    typeof (err as { message?: unknown }).message === "string"
+  ) {
+    return (err as { message: string }).message;
+  }
+  return fallback;
+};
+
 const DailyChallengePage: Component = () => {
   const { setMode, setSelectedLocation } = useMapUi();
   const [currentUser, setCurrentUser] = createSignal<User | null>(auth.currentUser);
@@ -142,7 +162,9 @@ const DailyChallengePage: Component = () => {
   const [events, setEvents] = createSignal<(DailyCatchEvent & { _id: string })[]>([]);
   const [searchResults, setSearchResults] = createSignal<(SocialProfile & { _id: string })[]>([]);
   const [isSearchingProfiles, setIsSearchingProfiles] = createSignal(false);
-  const [isSavingCatch, setIsSavingCatch] = createSignal(false);
+  const [localCounts, setLocalCounts] = createSignal<Record<DailyBucket, number>>(EMPTY_COUNTS());
+  const [pendingCatchOps, setPendingCatchOps] = createSignal<Record<DailyBucket, number>>(EMPTY_COUNTS());
+  const [processingCatchOps, setProcessingCatchOps] = createSignal<Record<DailyBucket, boolean>>(EMPTY_BUCKET_FLAGS());
   const [isSendingFriendRequest, setIsSendingFriendRequest] = createSignal<string | null>(null);
   const [friendSearch, setFriendSearch] = createSignal("");
   const [isFriendsOpen, setIsFriendsOpen] = createSignal(false);
@@ -172,6 +194,9 @@ const DailyChallengePage: Component = () => {
       setEvents([]);
       setFriendProfiles([]);
       setSearchResults([]);
+      setLocalCounts(EMPTY_COUNTS());
+      setPendingCatchOps(EMPTY_COUNTS());
+      setProcessingCatchOps(EMPTY_BUCKET_FLAGS());
       return;
     }
 
@@ -361,6 +386,16 @@ const DailyChallengePage: Component = () => {
     return row?.counts ?? EMPTY_COUNTS();
   });
 
+  createEffect(() => {
+    const serverCounts = myCounts();
+    const hasPendingOrProcessing = BUCKETS.some(
+      (bucket) => pendingCatchOps()[bucket.key] !== 0 || processingCatchOps()[bucket.key]
+    );
+    if (!hasPendingOrProcessing) {
+      setLocalCounts(serverCounts);
+    }
+  });
+
   const myWeekly = createMemo(() => {
     const user = currentUser();
     if (!user) return null;
@@ -437,6 +472,40 @@ const DailyChallengePage: Component = () => {
     }
   };
 
+  const flushCatchBucket = async (bucket: DailyBucket) => {
+    if (processingCatchOps()[bucket]) return;
+
+    setProcessingCatchOps((prev) => ({ ...prev, [bucket]: true }));
+    try {
+      while (true) {
+        const pending = pendingCatchOps()[bucket];
+        if (pending === 0) break;
+
+        const delta: 1 | -1 = pending > 0 ? 1 : -1;
+        setPendingCatchOps((prev) => ({ ...prev, [bucket]: prev[bucket] - delta }));
+
+        try {
+          await addDailyCatchEventCall({
+            bucket,
+            delta,
+          });
+        } catch (err) {
+          console.error("Kunde inte uppdatera fångstfönstret", err);
+          setLocalCounts((prev) => ({
+            ...prev,
+            [bucket]: Math.max(0, prev[bucket] - delta),
+          }));
+          setError(toErrorMessage(err, "Kunde inte uppdatera fångstfönstret."));
+        }
+      }
+    } finally {
+      setProcessingCatchOps((prev) => ({ ...prev, [bucket]: false }));
+      if (pendingCatchOps()[bucket] !== 0) {
+        void flushCatchBucket(bucket);
+      }
+    }
+  };
+
   const adjustCatch = async (bucket: DailyBucket, delta: 1 | -1) => {
     setStatus(null);
     setError(null);
@@ -446,30 +515,20 @@ const DailyChallengePage: Component = () => {
       return;
     }
 
-    if (delta === -1 && myCounts()[bucket] <= 0) {
+    if (delta === -1 && localCounts()[bucket] <= 0) {
       setError("Du kan inte minska under 0 för den klassen.");
       return;
     }
 
-    setIsSavingCatch(true);
-    try {
-      await addDailyCatchEventCall({
-        bucket,
-        delta,
-      });
-    } catch (err) {
-      console.error("Kunde inte uppdatera fångstfönstret", err);
-      const message =
-        typeof err === "object" &&
-        err !== null &&
-        "message" in err &&
-        typeof (err as { message?: unknown }).message === "string"
-          ? (err as { message: string }).message
-          : "Kunde inte uppdatera fångstfönstret.";
-      setError(message);
-    } finally {
-      setIsSavingCatch(false);
-    }
+    setLocalCounts((prev) => ({
+      ...prev,
+      [bucket]: Math.max(0, prev[bucket] + delta),
+    }));
+    setPendingCatchOps((prev) => ({
+      ...prev,
+      [bucket]: prev[bucket] + delta,
+    }));
+    void flushCatchBucket(bucket);
   };
 
   return (
@@ -594,7 +653,7 @@ const DailyChallengePage: Component = () => {
                     type="button"
                     class="daily-catch-btn daily-catch-btn--minus secondary-button"
                     onClick={() => void adjustCatch(bucket.key, -1)}
-                    disabled={isSavingCatch()}
+                    disabled={localCounts()[bucket.key] <= 0}
                     aria-label={`Minska ${bucket.label}`}
                   >
                     -
@@ -602,14 +661,13 @@ const DailyChallengePage: Component = () => {
 
                   <div class="daily-catch-info">
                     <span class="daily-catch-label">{bucket.label}</span>
-                    <strong class="daily-catch-count">{myCounts()[bucket.key]} st</strong>
+                    <strong class="daily-catch-count">{localCounts()[bucket.key]} st</strong>
                   </div>
 
                   <button
                     type="button"
                     class="daily-catch-btn daily-catch-btn--plus primary-button"
                     onClick={() => void adjustCatch(bucket.key, 1)}
-                    disabled={isSavingCatch()}
                     aria-label={`Öka ${bucket.label}`}
                   >
                     +
