@@ -72,6 +72,24 @@ const WaterInfoPage: Component = () => {
         waterName={waterData.data()?.name ?? ""}
         waterLocation={waterData.data()?.location}
       />
+
+      <section class="ai-recommendation pro-preview">
+        <div class="pro-preview__head">
+          <h2>Bite Radar</h2>
+          <span class="pro-chip">Pro</span>
+        </div>
+        <p class="ai-reco-summary">
+          Prognosmodulen visar bästa tidsfönster och sannolik huggintensitet per plats.
+        </p>
+        <ul class="pro-preview__list">
+          <li>Hugg-index per 2-timmarsfönster</li>
+          <li>Vind, tryck och temperatur i samma vy</li>
+          <li>Rekommenderat betesintervall för just detta vatten</li>
+        </ul>
+        <A href="/rapporter" class="link-button">
+          Se Rapporter
+        </A>
+      </section>
       
       <WaterCatchesComponent />
 

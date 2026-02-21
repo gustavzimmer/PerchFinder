@@ -14,6 +14,8 @@ const LoginPage = lazy(() => import('./pages/LoginPage'));
 const AdminWaterRequestsPage = lazy(() => import('./pages/AdminWaterRequestsPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const DailyChallengePage = lazy(() => import('./pages/DailyChallengePage'));
+const LeaguesPage = lazy(() => import('./pages/LeaguesPage'));
+const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 
 const Layout: Component<RouteSectionProps> = (props) => {
   const location = useLocation();
@@ -41,6 +43,8 @@ const App: Component = () => (
       <Route path="/vatten/:id" component={WaterInfoPage} />
       <Route path="/profil" component={ProfilePage} />
       <Route path="/perchbuddy" component={DailyChallengePage} />
+      <Route path="/ligor" component={LeaguesPage} />
+      <Route path="/rapporter" component={ReportsPage} />
       <Route path="/skapa-konto" component={RegisterUserPage} />
       <Route path="/logga-in" component={LoginPage} />
     </Route>

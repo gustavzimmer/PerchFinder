@@ -143,6 +143,8 @@ const Navigation: Component = () => {
                         {currentUser() && (
                             <A href="/perchbuddy" onClick={() => setIsDesktopMenuOpen(false)}>PerchBuddy</A>
                         )}
+                        <A href="/ligor" onClick={() => setIsDesktopMenuOpen(false)}>Ligor</A>
+                        <A href="/rapporter" onClick={() => setIsDesktopMenuOpen(false)}>Rapporter</A>
                         {isAdminUser() && (
                             <A href="/admin/vattenforfragan" onClick={() => setIsDesktopMenuOpen(false)}>
                                 Admin
@@ -216,6 +218,12 @@ const Navigation: Component = () => {
                     <div class="mobile-nav__menu">
                         <A href="/registrera-fiskevatten" onClick={() => setIsMobileMoreOpen(false)}>
                             Registrera vatten
+                        </A>
+                        <A href="/ligor" onClick={() => setIsMobileMoreOpen(false)}>
+                            Ligor
+                        </A>
+                        <A href="/rapporter" onClick={() => setIsMobileMoreOpen(false)}>
+                            Rapporter
                         </A>
                         <Show when={isAdminUser()}>
                             <A href="/admin/vattenforfragan" onClick={() => setIsMobileMoreOpen(false)}>
